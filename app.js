@@ -547,7 +547,15 @@ window.quickUpdateField = function(id, field, value) {
 };
 
 window.openEditDrawer = function(id) {
-    openEditDrawer(id); // Using the localized logic we implemented earlier
+    const po = state.pos.find(p => p.id === id);
+    if (!po) return;
+
+    editingPOId = id;
+
+    // Pre-fill the form
+    fillForm(po);
+
+    openDrawer('edit');
 };
 
 window.deletePO = function() {
