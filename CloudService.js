@@ -10,9 +10,9 @@
  */
 
 const CloudService = {
-    supabaseUrl: '', // To be filled from GMA-Cloud-Setup.md
-    supabaseKey: '', // To be filled from GMA-Cloud-Setup.md
-    isMock: true,    // Becomes false once credentials are provided
+    supabaseUrl: 'https://hettdkznujeabmckkvni.supabase.co',
+    supabaseKey: 'sb_publishable_PbTN8cRWOk69utvQNgBuYg_Y2ITb5Zx',
+    isMock: false, 
 
     async init(url, key) {
         if (url && key) {

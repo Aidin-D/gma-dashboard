@@ -38,8 +38,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchView('live-board');
     
     // Load cloud config
-    const cloudUrl = localStorage.getItem('gma_cloud_url');
-    const cloudKey = localStorage.getItem('gma_cloud_key');
+    const cloudUrl = localStorage.getItem('gma_cloud_url') || CloudService.supabaseUrl;
+    const cloudKey = localStorage.getItem('gma_cloud_key') || CloudService.supabaseKey;
     await CloudService.init(cloudUrl, cloudKey);
     await syncWithCloud();
     renderAll();
