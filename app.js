@@ -489,10 +489,16 @@ async function saveState(data, action) {
 
 async function syncWithCloud() {
     console.log('[App] Syncing with Cloud...');
-    const cloudPOs = await CloudService.getPOs();
-    if (cloudPOs && cloudPOs.length > 0) {
-        state.pos = cloudPOs;
-        localStorage.setItem('gma_dash_state', JSON.stringify(state));
+    try {
+        const cloudPOs = await CloudService.getPOs();
+        // If we successfully get something back from the cloud (even if it's 0 orders), 
+        // we use that as our source of truth and discard the mock orders.
+        if (Array.isArray(cloudPOs)) {
+            state.pos = cloudPOs;
+            localStorage.setItem('gma_dash_state', JSON.stringify(state));
+        }
+    } catch (err) {
+        console.warn('[Sync] Could not reach cloud, using cached/local data.');
     }
     
     // Update Connection Badge
