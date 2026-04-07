@@ -161,10 +161,31 @@
                         <label>Item Number</label>
                         <input type="text" name="sku" required class="form-input" placeholder="e.g. 83356">
                     </div>
+<<<<<<< HEAD
+=======
+                    <div class="form-group">
+                        <label>Currency</label>
+                        <select name="currency" class="form-input">
+                            <option value="USD">USD ($)</option>
+                            <option value="CAD">CAD ($)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Unit Cost</label>
+                        <input type="number" step="0.01" name="unit_cost" class="form-input" placeholder="0.00">
+                    </div>
+>>>>>>> dev
                     <div class="form-group form-full">
                         <label>Description</label>
                         <input type="text" name="description" required class="form-input" placeholder="Full technical description">
                     </div>
+<<<<<<< HEAD
+=======
+                    <div class="form-group form-full">
+                        <label>Order Reference / Internal Notes</label>
+                        <textarea name="reference" class="form-input" rows="2" placeholder="e.g. Special packing required, sample approved..."></textarea>
+                    </div>
+>>>>>>> dev
                     <div class="form-group form-full hidden" id="statusFieldGroup">
                         <label>Status</label>
                         <select name="status" class="form-input">
@@ -199,6 +220,22 @@
                     </div>
                 </div>
             </section>
+<<<<<<< HEAD
+=======
+            <section class="financial-summary">
+                <h4>Financial Analytics</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Total Ext Cost (OS)</label>
+                        <div id="costOS" class="calculated-value">$ 0.00</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Total Ext Cost (All)</label>
+                        <div id="costAll" class="calculated-value">$ 0.00</div>
+                    </div>
+                </div>
+            </section>
+>>>>>>> dev
             <section>
                 <h4>Timeline</h4>
                 <div class="form-grid">
@@ -225,6 +262,36 @@
         </div>
     </aside>
 
+<<<<<<< HEAD
+=======
+    <!-- Role Security Overlay -->
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-card">
+            <div class="login-header">
+                <h2>Security Verification</h2>
+                <p>Please select your role and enter your passcode.</p>
+            </div>
+            <div class="login-body">
+                <div class="login-role-select">
+                    <button class="login-role-btn active" data-target-role="dometic">Dometic (Admin)</button>
+                    <button class="login-role-btn" data-target-role="zunpower">ZunPower (Supplier)</button>
+                </div>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label>Passcode</label>
+                        <input type="password" id="passcode" class="form-input" placeholder="Enter 4-digit PIN" required>
+                    </div>
+                    <p id="loginError" class="login-error hidden">Invalid Passcode. Please try again.</p>
+                    <div class="login-actions">
+                        <button type="button" class="btn-ghost" onclick="document.getElementById('loginOverlay').classList.remove('active')">Cancel</button>
+                        <button type="submit" class="btn-primary">Access Dashboard</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+>>>>>>> dev
     <script src="CloudService.js"></script>
     <script src="app.js"></script>
 </body>
