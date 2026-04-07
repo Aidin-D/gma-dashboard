@@ -19,7 +19,11 @@ const CloudService = {
         if (url && key) {
             this.supabaseUrl = url;
             this.supabaseKey = key;
-            this.isMock = false;
+            // Sanity check for Supabase key format (should start with ey... JWT)
+            this.isMock = !key.startsWith('ey');
+            if (this.isMock) {
+                console.warn('[CloudService] Provided key does not look like a standard Supabase Key. Defaulting to Demo Mode.');
+            }
         }
         console.log(`[CloudService] Initialized ${this.isMock ? '(MOCK MODE)' : '(LIVE MODE)'}`);
     },
