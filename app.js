@@ -93,7 +93,7 @@ function renderPOTable(data) {
         
         const unitCost = po.unit_cost || 0;
         const totalCostOS = unitCost * (po.outstanding_qty || 0);
-        const currencySymbol = po.currency === 'CNY' ? '¥' : po.currency === 'EUR' ? '€' : '$';
+        const currencySymbol = '$';
 
         // Role-aware action button
         const actionBtn = isZunPower
@@ -579,8 +579,7 @@ function updateFinancialSummary() {
     const qty = parseFloat(formData.get('qty')) || 0;
     const unitCost = parseFloat(formData.get('unit_cost')) || 0;
     const osQty = parseFloat(formData.get('outstanding_qty')) || 0;
-    const currency = formData.get('currency');
-    const symbol = currency === 'CNY' ? '¥' : currency === 'EUR' ? '€' : '$';
+    const symbol = '$';
 
     const costOS = document.getElementById('costOS');
     const costAll = document.getElementById('costAll');
