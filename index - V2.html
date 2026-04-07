@@ -30,24 +30,10 @@
                     <span>Demand Planning</span>
                 </a>
             </nav>
-            <div class="sidebar-footer">
-                <p>Powered by Dometic</p>
-                <p class="timestamp">Last Updated: <span id="deployTime">Apr 7, 12:00 PM</span></p>
-            </div>
         </aside>
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Mobile Header (hidden on desktop) -->
-            <div class="mobile-brand-header">
-                <div class="brand-icon">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                </div>
-                <h1>GMA Dashboard</h1>
-                <button id="mobileMenuToggle" class="btn-icon">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"/></svg>
-                </button>
-            </div>
             <!-- Header -->
             <header class="page-header">
                 <div>
@@ -106,23 +92,21 @@
 
                 <!-- Table -->
                 <div class="data-card">
-                    <div class="table-scroll">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width:36px"></th>
-                                    <th>PO Number</th>
-                                    <th>Item Number</th>
-                                    <th>Status</th>
-                                    <th class="hidden-md" style="text-align:right">Unit Cost</th>
-                                    <th class="hidden-lg" style="text-align:right">Total (OS)</th>
-                                    <th class="hidden-sm">ETA</th>
-                                    <th style="text-align:right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="poTableBody"></tbody>
-                        </table>
-                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:36px"></th>
+                                <th>PO Number</th>
+                                <th>Item Number</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                                <th>Shipment Progress</th>
+                                <th>ETA</th>
+                                <th style="text-align:right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="poTableBody"></tbody>
+                    </table>
                 </div>
             </div>
 
@@ -161,25 +145,9 @@
                         <label>Item Number</label>
                         <input type="text" name="sku" required class="form-input" placeholder="e.g. 83356">
                     </div>
-                    <div class="form-group">
-                        <label>Currency</label>
-                        <select name="currency" class="form-input">
-                            <option value="USD">USD ($)</option>
-                            <option value="CNY">CNY (¥)</option>
-                            <option value="EUR">EUR (€)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Unit Cost</label>
-                        <input type="number" step="0.01" name="unit_cost" class="form-input" placeholder="0.00">
-                    </div>
                     <div class="form-group form-full">
                         <label>Description</label>
                         <input type="text" name="description" required class="form-input" placeholder="Full technical description">
-                    </div>
-                    <div class="form-group form-full">
-                        <label>Order Reference / Internal Notes</label>
-                        <textarea name="reference" class="form-input" rows="2" placeholder="e.g. Special packing required, sample approved..."></textarea>
                     </div>
                     <div class="form-group form-full hidden" id="statusFieldGroup">
                         <label>Status</label>
@@ -215,19 +183,6 @@
                     </div>
                 </div>
             </section>
-            <section class="financial-summary">
-                <h4>Financial Analytics</h4>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label>Total Ext Cost (OS)</label>
-                        <div id="costOS" class="calculated-value">$ 0.00</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Total Ext Cost (All)</label>
-                        <div id="costAll" class="calculated-value">$ 0.00</div>
-                    </div>
-                </div>
-            </section>
             <section>
                 <h4>Timeline</h4>
                 <div class="form-grid">
@@ -246,41 +201,15 @@
                 </div>
             </section>
         </form>
-        <div class="drawer-footer mobile-stack">
+        <div class="drawer-footer">
             <button type="button" id="deletePOBtn" class="btn-danger hidden" onclick="deletePO()">Delete PO</button>
-            <div style="flex:1" class="hidden-sm"></div>
+            <div style="flex:1"></div>
             <button type="button" id="cancelModal" class="btn-ghost">Discard</button>
             <button type="submit" form="poForm" class="btn-submit">Commit Order</button>
         </div>
     </aside>
 
-    <!-- Login Overlay -->
-    <div id="loginOverlay" class="login-overlay active">
-        <div class="login-card animate-scale-in">
-            <div class="brand-icon-large">
-                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-            </div>
-            <h2>GMA Dash Login</h2>
-            <p>Unified Supply Chain Execution</p>
-            <form id="loginForm">
-                <div class="form-group">
-                    <label>Select Role</label>
-                    <div class="role-selector">
-                        <button type="button" class="login-role-btn active" data-target-role="dometic">Dometic (Admin)</button>
-                        <button type="button" class="login-role-btn" data-target-role="zunpower">ZunPower (Supplier)</button>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>Access Passcode</label>
-                    <input type="password" id="passcode" class="form-input" placeholder="••••" required maxlength="4">
-                </div>
-                <div id="loginError" class="login-error hidden">Invalid Passcode for the selected role.</div>
-                <button type="submit" class="btn-primary btn-full">Access Dashboard</button>
-            </form>
-        </div>
-    </div>
-
-    <script src="CloudService.js"></script>
+    <script src="SharePointService.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

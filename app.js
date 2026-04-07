@@ -5,22 +5,15 @@ let state = {
     role: 'dometic',
     currentView: 'live-board',
     pos: [
-        { id: 'PO-2024-001', item_number: '83356', desc: 'RV AC Unit - 15k BTU', qty: 150, status: 'shipped', eta: '2024-04-12', value: 125000, order_date: '2024-03-01', ship_date: '2024-04-05', outstanding_qty: 0, location: 'DCIN', history: [
+        { id: 'PO-2024-001', item_number: '83356', desc: 'RV AC Unit - 15k BTU', qty: 150, status: 'shipped', eta: '2024-04-12', value: 125000, order_date: '2024-03-01', ship_date: '2024-04-05', outstanding_qty: 0, location: 'DCIN', currency: 'USD', unit_cost: 833.33, reference: 'Batch A-12', history: [
             { by: 'Dometic', action: 'Created PO', date: '2024-03-01 09:15' },
             { by: 'ZunPower', action: 'Status → Production', date: '2024-03-18 14:30' },
             { by: 'ZunPower', action: 'Ship Date set to 2024-04-05', date: '2024-04-02 10:00' },
             { by: 'ZunPower', action: 'Status → Shipped', date: '2024-04-05 16:45' }
         ]},
-        { id: 'PO-2024-002', item_number: '91001', desc: 'Solar Panel 200W', qty: 300, status: 'production', eta: '2024-04-25', value: 98000, order_date: '2024-03-15', ship_date: '', outstanding_qty: 300, location: 'FTN', history: [
+        { id: 'PO-2024-002', item_number: '91001', desc: 'Solar Panel 200W', qty: 300, status: 'production', eta: '2024-04-25', value: 98000, order_date: '2024-03-15', ship_date: '', outstanding_qty: 300, location: 'FTN', currency: 'USD', unit_cost: 326.66, reference: 'Urgent demand', history: [
             { by: 'Dometic', action: 'Created PO', date: '2024-03-15 11:00' },
             { by: 'ZunPower', action: 'Status → Production', date: '2024-03-22 08:20' }
-        ]},
-        { id: 'PO-2024-003', item_number: '83356', desc: 'RV AC Unit - 15k BTU', qty: 80, status: 'open', eta: '2024-05-02', value: 68000, order_date: '2024-04-01', ship_date: '', outstanding_qty: 80, location: 'REMCO', history: [
-            { by: 'Dometic', action: 'Created PO', date: '2024-04-01 10:30' }
-        ]},
-        { id: 'PO-2024-004', item_number: '75200', desc: 'Power Inverter 2000W', qty: 200, status: 'delayed', eta: '2024-04-10', value: 85000, order_date: '2024-03-05', ship_date: '', outstanding_qty: 200, location: 'OTHERS', history: [
-            { by: 'Dometic', action: 'Created PO', date: '2024-03-05 15:10' },
-            { by: 'ZunPower', action: 'Status → Delayed', date: '2024-04-08 09:45' }
         ]}
     ]
 };
@@ -41,8 +34,10 @@ let activeStatusFilter = 'all';
 document.addEventListener('DOMContentLoaded', async () => {
     loadState();
     setupEventListeners();
+    setupLoginLogic();
     switchView('live-board');
-    // Load config from localStorage if set, otherwise use mock
+    
+    // Load cloud config
     const cloudUrl = localStorage.getItem('gma_cloud_url');
     const cloudKey = localStorage.getItem('gma_cloud_key');
     await CloudService.init(cloudUrl, cloudKey);
@@ -58,15 +53,19 @@ function renderAll() {
 }
 
 function renderStats() {
-    const totalValue = state.pos.reduce((sum, po) => sum + po.value, 0);
+    const totalValue = state.pos.reduce((sum, po) => sum + (po.qty * (po.unit_cost || 0)), 0);
     const inProd = state.pos.filter(po => po.status === 'production').length;
     const shipped = state.pos.filter(po => po.status === 'shipped').length;
     const atRisk = state.pos.filter(po => po.status === 'delayed').length;
 
-    document.getElementById('statTotalValue').textContent = `$${totalValue.toLocaleString()}`;
-    document.getElementById('statInProduction').textContent = `${inProd} Orders`;
-    document.getElementById('statShipped').textContent = `${shipped} Orders`;
-    document.getElementById('statAtRisk').textContent = `${atRisk}`;
+    const valEl = document.getElementById('statTotalValue');
+    if (valEl) valEl.textContent = `$${totalValue.toLocaleString()}`;
+    const prodEl = document.getElementById('statInProduction');
+    if (prodEl) prodEl.textContent = `${inProd} Orders`;
+    const shipEl = document.getElementById('statShipped');
+    if (shipEl) shipEl.textContent = `${shipped} Orders`;
+    const riskEl = document.getElementById('statAtRisk');
+    if (riskEl) riskEl.textContent = `${atRisk}`;
 }
 
 function filterAndRenderTable() {
@@ -74,9 +73,10 @@ function filterAndRenderTable() {
     const filtered = state.pos.filter(po => {
         const matchesQuery = (
             po.id.toLowerCase().includes(query) ||
-            po.item_number.toLowerCase().includes(query) ||
-            po.desc.toLowerCase().includes(query) ||
-            po.location.toLowerCase().includes(query)
+            (po.item_number || '').toLowerCase().includes(query) ||
+            (po.description || po.desc || '').toLowerCase().includes(query) ||
+            (po.location || '').toLowerCase().includes(query) ||
+            (po.reference || '').toLowerCase().includes(query)
         );
         const matchesStatus = (activeStatusFilter === 'all' || po.status === activeStatusFilter);
         return matchesQuery && matchesStatus;
@@ -87,16 +87,20 @@ function filterAndRenderTable() {
 function renderPOTable(data) {
     const isZunPower = state.role === 'zunpower';
     poTableBody.innerHTML = data.map(po => {
-        const progress = Math.round(((po.qty - po.outstanding_qty) / po.qty) * 100);
+        const progress = Math.round(((po.qty - (po.outstanding_qty || 0)) / po.qty) * 100);
         const pulseClass = po.status === 'delayed' ? ' pulse' : '';
         const etaColor = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
+        
+        const unitCost = po.unit_cost || 0;
+        const totalCostOS = unitCost * (po.outstanding_qty || 0);
+        const currencySymbol = po.currency === 'CNY' ? '¥' : po.currency === 'EUR' ? '€' : '$';
 
         // Role-aware action button
         const actionBtn = isZunPower
             ? `<button class="action-link update" onclick="event.stopPropagation(); openEditDrawer('${po.id}')">Update</button>`
             : `<button class="action-link" onclick="event.stopPropagation(); openEditDrawer('${po.id}')">Details</button>`;
 
-        // ZunPower quick-actions in the detail row
+        // ZunPower quick-actions
         const zunPowerActions = isZunPower ? `
             <div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px">
                 <p class="detail-label" style="margin-bottom:10px;color:#2563eb">Quick Update</p>
@@ -110,19 +114,10 @@ function renderPOTable(data) {
                             <option value="delayed" ${po.status==='delayed'?'selected':''}>Delayed</option>
                         </select>
                     </div>
-                    <div style="flex:1;min-width:140px">
-                        <label class="detail-label">Ship Date</label>
-                        <input type="date" class="form-input" value="${po.ship_date}" onchange="quickUpdateField('${po.id}','ship_date',this.value)" style="padding:8px 10px">
-                    </div>
-                    <div style="flex:1;min-width:120px">
-                        <label class="detail-label">Outstanding Qty</label>
-                        <input type="number" class="form-input" value="${po.outstanding_qty}" onchange="quickUpdateField('${po.id}','outstanding_qty',parseInt(this.value))" style="padding:8px 10px">
-                    </div>
                 </div>
             </div>
         ` : '';
 
-        // Update history timeline
         const historyLog = (po.history || []).slice().reverse();
         const historyHtml = historyLog.length > 0 ? `
             <div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px">
@@ -151,15 +146,10 @@ function renderPOTable(data) {
                 </td>
                 <td style="font-weight:700;color:#1e293b">${po.id}</td>
                 <td style="font-weight:600">${po.item_number}</td>
-                <td class="hidden-md" style="color:#64748b;max-width:200px;overflow:hidden;text-overflow:ellipsis">${po.desc}</td>
                 <td><span class="status-pill status-${po.status}${pulseClass}">${po.status}</span></td>
-                <td class="hidden-lg">
-                    <div style="display:flex;align-items:center;gap:10px">
-                        <div class="progress-container"><div class="progress-fill" style="width:${progress}%"></div></div>
-                        <span style="font-size:0.7rem;font-weight:700;color:#94a3b8">${progress}%</span>
-                    </div>
-                </td>
-                <td class="hidden-sm" style="${etaColor}">${po.eta}</td>
+                <td class="hidden-md" style="text-align:right; font-weight:600">${currencySymbol}${unitCost.toLocaleString()}</td>
+                <td class="hidden-lg" style="text-align:right; color:var(--blue-600); font-weight:700">${currencySymbol}${totalCostOS.toLocaleString()}</td>
+                <td class="hidden-sm" style="${etaColor}">${po.eta || 'TBD'}</td>
                 <td style="text-align:right">${actionBtn}</td>
             </tr>
             <tr id="details-${po.id}" class="details-row hidden">
@@ -171,17 +161,21 @@ function renderPOTable(data) {
                         </div>
                         <div>
                             <p class="detail-label">Order Timeline</p>
-                            <p class="detail-sub">Ordered: <span class="detail-val">${po.order_date}</span></p>
+                            <p class="detail-sub">Ordered: <span class="detail-val">${po.order_date || '-'}</span></p>
                             <p class="detail-sub">Shipped: <span class="detail-val">${po.ship_date || 'Pending'}</span></p>
                         </div>
                         <div>
-                            <p class="detail-label">Quantity Breakdown</p>
+                            <p class="detail-label">Quantity Summary</p>
                             <p class="detail-sub">Total: <span class="detail-val">${po.qty}</span></p>
-                            <p class="detail-sub">Outstanding: <span style="font-weight:700;color:#ea580c">${po.outstanding_qty}</span></p>
+                            <p class="detail-sub">Remaining: <span style="font-weight:700;color:#ea580c">${po.outstanding_qty}</span></p>
                         </div>
                         <div>
-                            <p class="detail-label">Estimated Value</p>
-                            <p style="font-size:1rem;font-weight:800;color:#2563eb">$${po.value.toLocaleString()}</p>
+                            <p class="detail-label">Total Volume Cost</p>
+                            <p style="font-size:1rem;font-weight:800;color:#2563eb">${currencySymbol}${(po.qty * unitCost).toLocaleString()}</p>
+                        </div>
+                        <div style="grid-column:1/-1">
+                             <p class="detail-label">Notes / Reference</p>
+                             <p class="detail-value" style="font-style:italic">${po.reference || 'No additional comments.'}</p>
                         </div>
                         ${zunPowerActions}
                         ${historyHtml}
@@ -207,17 +201,35 @@ window.toggleRow = function(id) {
     }
 };
 
-// ---- Role ----
+// ---- Drawer ----
+let editingPOId = null;
+
+function fillForm(po) {
+    poForm.querySelector('[name="po_number"]').value = po.id;
+    poForm.querySelector('[name="sku"]').value = po.item_number;
+    poForm.querySelector('[name="description"]').value = po.description || po.desc || '';
+    poForm.querySelector('[name="qty"]').value = po.qty;
+    poForm.querySelector('[name="outstanding_qty"]').value = po.outstanding_qty;
+    poForm.querySelector('[name="unit_cost"]').value = po.unit_cost || 0;
+    poForm.querySelector('[name="currency"]').value = po.currency || 'USD';
+    poForm.querySelector('[name="location"]').value = po.location || '';
+    poForm.querySelector('[name="order_date"]').value = po.order_date || '';
+    poForm.querySelector('[name="eta"]').value = po.eta || '';
+    poForm.querySelector('[name="ship_date"]').value = po.ship_date || '';
+    poForm.querySelector('[name="status"]').value = po.status;
+    poForm.querySelector('[name="reference"]').value = po.reference || '';
+}
+
 function updateUIForRole() {
+    const isZunPower = state.role === 'zunpower';
     const isDometic = state.role === 'dometic';
-    createPOBtn.classList.toggle('hidden', !isDometic);
+    
+    if (createPOBtn) createPOBtn.style.display = isZunPower ? 'none' : 'flex';
+    
     document.querySelectorAll('.role-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-role') === state.role);
     });
 }
-
-// ---- Drawer ----
-let editingPOId = null;
 
 function openDrawer(mode = 'create') {
     const title = document.querySelector('.drawer-header h3');
@@ -233,6 +245,19 @@ function openDrawer(mode = 'create') {
         submitBtn.textContent = 'Save Changes';
         statusGroup.classList.remove('hidden');
         poNumberInput.readOnly = true;
+
+        // Role Restrictions
+        const isZunPower = state.role === 'zunpower';
+        const restrictedFields = ['po_number', 'sku', 'qty', 'unit_cost', 'order_date', 'description'];
+        
+        restrictedFields.forEach(field => {
+            const input = poForm.querySelector(`[name="${field}"]`);
+            if (input) {
+                input.readOnly = isZunPower;
+                input.style.background = isZunPower ? 'var(--slate-50)' : 'white';
+            }
+        });
+
         // Show delete only for Dometic
         if (state.role === 'dometic') {
             deleteBtn.classList.remove('hidden');
@@ -251,13 +276,21 @@ function openDrawer(mode = 'create') {
 
     sideDrawer.classList.add('open');
     drawerOverlay.classList.add('visible');
+    updateFinancialSummary();
 }
 
 function closeDrawer() {
     sideDrawer.classList.remove('open');
     drawerOverlay.classList.remove('visible');
     poForm.reset();
-    poForm.querySelector('[name="po_number"]').readOnly = false;
+    
+    // Reset form states
+    const allInputs = poForm.querySelectorAll('input, select, textarea');
+    allInputs.forEach(input => {
+        input.readOnly = false;
+        input.style.background = 'white';
+    });
+
     document.getElementById('statusFieldGroup').classList.add('hidden');
     document.getElementById('deletePOBtn').classList.add('hidden');
     editingPOId = null;
@@ -271,10 +304,21 @@ function setupEventListeners() {
     // Role Toggle
     document.querySelectorAll('.role-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            state.role = btn.getAttribute('data-role');
-            updateUIForRole();
-            renderAll();
+            const role = btn.getAttribute('data-role');
+            if (role === 'zunpower' && state.role !== 'zunpower') {
+                document.getElementById('loginOverlay').classList.add('active');
+            } else if (role === 'dometic' && state.role !== 'dometic') {
+                const overlay = document.getElementById('loginOverlay');
+                overlay.querySelector('.login-role-btn[data-target-role="dometic"]').click();
+                overlay.classList.add('active');
+            }
         });
+    });
+
+    // PO Form Inputs for Real-time calculations
+    ['qty', 'unit_cost', 'outstanding_qty', 'currency'].forEach(field => {
+        const input = poForm.querySelector(`[name="${field}"]`);
+        if (input) input.addEventListener('input', updateFinancialSummary);
     });
 
     // Mobile Menu Toggle
@@ -355,25 +399,33 @@ function setupEventListeners() {
                 }
 
                 po.desc = fd.get('description') || po.desc;
+                po.description = fd.get('description') || po.description;
                 po.qty = parseInt(fd.get('qty')) || po.qty;
                 po.outstanding_qty = !isNaN(newOutstanding) ? newOutstanding : po.outstanding_qty;
+                po.unit_cost = parseFloat(fd.get('unit_cost')) || po.unit_cost || 0;
+                po.currency = fd.get('currency') || po.currency || 'USD';
+                po.reference = fd.get('reference') || po.reference || '';
                 po.eta = fd.get('eta') || po.eta;
                 po.order_date = fd.get('order_date') || po.order_date;
                 po.ship_date = fd.get('ship_date') || po.ship_date;
                 po.location = fd.get('location') || po.location;
                 po.item_number = fd.get('sku') || po.item_number;
+                po.value = po.qty * (po.unit_cost || 0);
 
                 const summary = changes.length > 0 ? changes.join(', ') : 'Updated via form';
                 logHistory(po, summary);
 
                 saveState({ id: po.id, updates: {
-                    Description: po.desc,
-                    Quantity: po.qty,
-                    OutstandingQty: po.outstanding_qty,
-                    ETA: po.eta,
-                    ShipDate: po.ship_date,
-                    Location: po.location,
-                    Status: po.status.charAt(0).toUpperCase() + po.status.slice(1)
+                    description: po.desc,
+                    qty: po.qty,
+                    outstanding_qty: po.outstanding_qty,
+                    unit_cost: po.unit_cost,
+                    currency: po.currency,
+                    reference: po.reference,
+                    eta: po.eta,
+                    ship_date: po.ship_date,
+                    location: po.location,
+                    status: po.status
                 }}, 'update');
             }
         } else {
@@ -382,14 +434,18 @@ function setupEventListeners() {
                 id: fd.get('po_number'),
                 item_number: fd.get('sku'),
                 desc: fd.get('description'),
-                qty: parseInt(fd.get('qty')),
+                description: fd.get('description'),
+                qty: parseInt(fd.get('qty')) || 0,
+                unit_cost: parseFloat(fd.get('unit_cost')) || 0,
+                currency: fd.get('currency') || 'USD',
+                reference: fd.get('reference') || '',
                 status: 'open',
                 eta: fd.get('eta'),
                 order_date: fd.get('order_date') || new Date().toISOString().split('T')[0],
                 ship_date: fd.get('ship_date') || '',
-                outstanding_qty: parseInt(fd.get('outstanding_qty') || fd.get('qty')),
+                outstanding_qty: parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
                 location: fd.get('location') || 'OTHERS',
-                value: Math.floor(Math.random() * 50000) + 10000,
+                value: (parseInt(fd.get('qty')) || 0) * (parseFloat(fd.get('unit_cost')) || 0),
                 history: []
             };
             logHistory(newPO, 'Created PO');
@@ -481,35 +537,17 @@ window.quickUpdateField = function(id, field, value) {
     const displayVal = field === 'status' ? value.charAt(0).toUpperCase() + value.slice(1) : value;
     logHistory(po, `${label} → ${displayVal}`);
 
-    // Build SP field mapping
-    const fieldMap = { status: 'Status', ship_date: 'ShipDate', outstanding_qty: 'OutstandingQty', location: 'Location' };
+    // Build Supabase field mapping
+    const fieldMap = { status: 'status', ship_date: 'ship_date', outstanding_qty: 'outstanding_qty', location: 'location' };
     const spField = fieldMap[field] || field;
-    const spValue = field === 'status' ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+    const spValue = field === 'status' ? value : value;
 
     saveState({ id, updates: { [spField]: spValue } }, 'update');
     renderAll();
 };
 
 window.openEditDrawer = function(id) {
-    const po = state.pos.find(p => p.id === id);
-    if (!po) return;
-
-    editingPOId = id;
-
-    // Pre-fill the form
-    const form = poForm;
-    form.querySelector('[name="po_number"]').value = po.id;
-    form.querySelector('[name="sku"]').value = po.item_number;
-    form.querySelector('[name="description"]').value = po.desc;
-    form.querySelector('[name="qty"]').value = po.qty;
-    form.querySelector('[name="outstanding_qty"]').value = po.outstanding_qty;
-    form.querySelector('[name="location"]').value = po.location;
-    form.querySelector('[name="order_date"]').value = po.order_date;
-    form.querySelector('[name="eta"]').value = po.eta;
-    form.querySelector('[name="ship_date"]').value = po.ship_date;
-    form.querySelector('[name="status"]').value = po.status;
-
-    openDrawer('edit');
+    openEditDrawer(id); // Using the localized logic we implemented earlier
 };
 
 window.deletePO = function() {
@@ -517,11 +555,61 @@ window.deletePO = function() {
     const po = state.pos.find(p => p.id === editingPOId);
     if (!po) return;
 
+    if (state.role !== 'dometic') return;
+
     const confirmed = confirm(`Are you sure you want to permanently delete ${editingPOId}?\n\nThis action cannot be undone.`);
     if (!confirmed) return;
 
     state.pos = state.pos.filter(p => p.id !== editingPOId);
-    saveState();
+    saveState({ id: editingPOId }, 'delete');
     closeDrawer();
     renderAll();
 };
+
+function updateFinancialSummary() {
+    const formData = new FormData(poForm);
+    const qty = parseFloat(formData.get('qty')) || 0;
+    const unitCost = parseFloat(formData.get('unit_cost')) || 0;
+    const osQty = parseFloat(formData.get('outstanding_qty')) || 0;
+    const currency = formData.get('currency');
+    const symbol = currency === 'CNY' ? '¥' : currency === 'EUR' ? '€' : '$';
+
+    const costOS = document.getElementById('costOS');
+    const costAll = document.getElementById('costAll');
+    if (costOS) costOS.textContent = `${symbol} ${(osQty * unitCost).toLocaleString()}`;
+    if (costAll) costAll.textContent = `${symbol} ${(qty * unitCost).toLocaleString()}`;
+}
+
+function setupLoginLogic() {
+    const overlay = document.getElementById('loginOverlay');
+    const roleBtns = document.querySelectorAll('.login-role-btn');
+    let selectedRole = 'dometic';
+
+    roleBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            roleBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedRole = btn.dataset.targetRole;
+        });
+    });
+
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const passcode = document.getElementById('passcode').value;
+            const correctCode = selectedRole === 'dometic' ? '7890' : '1234';
+
+            if (passcode === correctCode) {
+                state.role = selectedRole;
+                overlay.classList.remove('active');
+                document.getElementById('passcode').value = '';
+                document.getElementById('loginError').classList.add('hidden');
+                renderAll();
+                localStorage.setItem('gma_dash_state', JSON.stringify(state));
+            } else {
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        });
+    }
+}
