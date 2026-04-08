@@ -254,8 +254,6 @@ function openDrawer(mode = 'create') {
         subtitle.textContent = state.role === 'zunpower' ? 'ZunPower Partner Update' : 'Dometic Admin Edit';
         submitBtn.textContent= 'Save Changes';
         statusGroup.classList.remove('hidden');
-        poInput.readOnly = true;
-
         // Role restrictions — ZunPower can only update logistics/status fields
         const restricted = ['po_number', 'sku', 'qty', 'unit_cost', 'order_date', 'description'];
         const isZP = state.role === 'zunpower';
@@ -397,6 +395,12 @@ function setupEventListeners() {
                 po.outstanding_qty = newOutstanding;
             }
 
+            const newPoId    = fd.get('po_number');
+            if (newPoId && newPoId !== po.id) {
+                changes.push(`ID changed to ${newPoId}`);
+                po.id = newPoId;
+            }
+
             po.description   = fd.get('description') || po.description || po.desc;
             po.desc          = po.description;
             po.qty           = parseInt(fd.get('qty'))         || po.qty;
@@ -411,7 +415,8 @@ function setupEventListeners() {
 
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
             persistState();
-            await CloudService.updatePO(po.id, {
+            await CloudService.updatePO(editingPOId, {
+                id:             po.id,
                 description:    po.description,
                 qty:            po.qty,
                 outstanding_qty:po.outstanding_qty,
