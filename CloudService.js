@@ -11,7 +11,7 @@
 
 const CloudService = {
     supabaseUrl: 'https://hettdkznujeabmckkvni.supabase.co',
-    supabaseKey: 'sb_publishable_PbTN8cRWOk69utvQNgBuYg_Y2ITb5Zx',
+    supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhldHRka3pudWplYWJtY2trdm5pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NzMyNjksImV4cCI6MjA5MTE0OTI2OX0.byriabl_RZcELa6gnla6j5LZT7r6DFxkm2fW6e9QycQ',
     isMock: false,
     _table: 'purchase_orders',
 
