@@ -7,6 +7,9 @@
     --primary: #2563eb;
     --primary-hover: #1d4ed8;
     --primary-light: #eff6ff;
+    --blue-50: #eff6ff;
+    --blue-600: #2563eb;
+    --blue-700: #1d4ed8;
     --slate-50: #f8fafc;
     --slate-100: #f1f5f9;
     --slate-200: #e2e8f0;
@@ -116,6 +119,16 @@ body {
     opacity: 0.5;
 }
 
+.sidebar-footer .timestamp {
+    font-size: 10px;
+    color: var(--slate-400);
+    margin-top: 6px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 1;
+}
+
 /* ---- Main Content ---- */
 .main-content {
     flex: 1;
@@ -165,6 +178,17 @@ body {
     background: #10b981;
     border-radius: 50%;
     animation: pulse-dot 2s infinite;
+}
+
+.sync-badge.demo-mode {
+    background: var(--slate-100);
+    color: var(--slate-500);
+    border-color: var(--slate-200);
+}
+
+.sync-badge.demo-mode .dot {
+    background: var(--slate-400);
+    animation: none;
 }
 
 @keyframes pulse-dot {
@@ -251,14 +275,7 @@ body {
     box-shadow: 0 1px 3px rgba(220, 38, 38, 0.12);
 }
 
-/* Primary Button */.sync-badge.demo-mode {
-    background: var(--slate-100);
-    color: var(--slate-500);
-}
-
-.sync-badge.demo-mode .dot {
-    background: var(--slate-400);
-}
+/* Primary Button */
 .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -891,113 +908,141 @@ select.form-input {
     color: var(--slate-600);
     font-weight: 500;
 }
-<<<<<<< HEAD
 
-=======
->>>>>>> dev
-.sidebar-footer .timestamp {
-    font-size: 10px;
-    color: var(--slate-400);
-    margin-top: 6px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-<<<<<<< HEAD
-=======
-
-/* Login Overlay */
+/* ---- Login / Switch User Overlay ---- */
 .login-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.8);
-    backdrop-filter: blur(12px);
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     z-index: 10000;
     display: flex;
     align-items: center;
     justify-content: center;
     opacity: 0;
     visibility: hidden;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 
 .login-overlay.active {
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
 }
 
 .login-card {
-    background: white;
+    background: #ffffff;
     width: 100%;
-    max-width: 400px;
+    max-width: 420px;
+    margin: 24px;
     padding: 40px;
-    border-radius: 24px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    border-radius: 20px;
+    box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.35);
+    animation: modalIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes modalIn {
+    from { opacity: 0; transform: scale(0.92) translateY(16px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.login-header {
     text-align: center;
+    margin-bottom: 28px;
 }
 
-.brand-icon-large {
-    width: 64px;
-    height: 64px;
-    background: var(--blue-600);
-    color: white;
-    border-radius: 16px;
+.login-header h2 {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--slate-900);
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+}
+
+.login-header p {
+    font-size: 0.85rem;
+    color: var(--slate-500);
+}
+
+.login-body {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 24px;
+    flex-direction: column;
+    gap: 16px;
 }
 
-.brand-icon-large svg {
-    width: 32px;
-    height: 32px;
-}
-
-.role-selector {
+.login-role-select {
     display: flex;
     gap: 8px;
-    margin-bottom: 20px;
 }
 
 .login-role-btn {
     flex: 1;
-    padding: 12px;
+    padding: 12px 16px;
     border: 2px solid var(--slate-200);
     background: white;
     border-radius: 12px;
-    font-weight: 600;
+    font-size: 0.82rem;
+    font-weight: 700;
     color: var(--slate-600);
     cursor: pointer;
     transition: all 0.2s;
+    font-family: inherit;
+}
+
+.login-role-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--blue-50);
 }
 
 .login-role-btn.active {
     border-color: var(--blue-600);
     background: var(--blue-50);
     color: var(--blue-700);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 .login-error {
     background: #fef2f2;
     color: #991b1b;
-    padding: 10px;
+    border: 1px solid #fecaca;
+    padding: 10px 14px;
     border-radius: 8px;
-    font-size: 13px;
-    margin-bottom: 16px;
-    font-weight: 500;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-top: 4px;
 }
 
-/* Financial Styles */
+.login-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.login-actions .btn-ghost {
+    flex: 0 0 auto;
+    padding: 12px 20px;
+}
+
+.login-actions .btn-primary {
+    flex: 1;
+    justify-content: center;
+}
+
+/* ---- Financial Panel ---- */
 .financial-summary {
     background: var(--slate-50);
-    margin: 0 -32px;
-    padding: 24px 32px;
+    margin: 0 -28px;
+    padding: 20px 28px;
     border-top: 1px solid var(--slate-200);
     border-bottom: 1px solid var(--slate-200);
+    margin-bottom: 24px;
 }
 
 .calculated-value {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
     font-weight: 700;
     color: var(--slate-900);
     padding: 12px;
@@ -1012,4 +1057,3 @@ select.form-input {
     justify-content: center;
     padding: 14px;
 }
->>>>>>> dev
