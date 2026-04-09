@@ -72,15 +72,21 @@ function renderAll() {
 }
 
 function renderStats() {
-    const totalValue = state.pos.reduce((sum, po) => sum + (po.qty * (po.unit_cost || 0)), 0);
+    const totalOrders = state.pos.length || 1;
     const inProd  = state.pos.filter(po => po.status === 'production').length;
     const shipped = state.pos.filter(po => po.status === 'shipped').length;
     const atRisk  = state.pos.filter(po => po.status === 'delayed').length;
 
-    setText('statTotalValue',   `$${totalValue.toLocaleString()}`);
     setText('statInProduction', `${inProd} Orders`);
     setText('statShipped',      `${shipped} Orders`);
-    setText('statAtRisk',       `${atRisk}`);
+    setText('statAtRisk',       `${atRisk} Orders`);
+
+    const pProd = document.getElementById('barProduction');
+    const pShip = document.getElementById('barShipped');
+    const pRisk = document.getElementById('barAtRisk');
+    if (pProd) pProd.style.width = `${(inProd / totalOrders) * 100}%`;
+    if (pShip) pShip.style.width = `${(shipped / totalOrders) * 100}%`;
+    if (pRisk) pRisk.style.width = `${(atRisk / totalOrders) * 100}%`;
 }
 
 function setText(id, value) {
