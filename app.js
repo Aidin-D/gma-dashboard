@@ -108,11 +108,8 @@ function renderPOTable(data) {
     const isZunPower = state.role === 'zunpower';
 
     poTableBody.innerHTML = data.map(po => {
-        const unitCost     = po.unit_cost || 0;
-        const costOS       = unitCost * (po.outstanding_qty || 0);
         const pulseClass   = po.status === 'delayed' ? ' pulse' : '';
         const etaStyle     = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
-        const currSym      = '$';
 
         const actionBtn = isZunPower
             ? `<button class="action-link update" onclick="event.stopPropagation(); openEditDrawer('${po.id}')">Update</button>`
@@ -162,14 +159,12 @@ function renderPOTable(data) {
                 </td>
                 <td style="font-weight:700;color:#1e293b">${po.id}</td>
                 <td style="font-weight:600">${po.item_number || '—'}</td>
-                <td class="hidden-md" style="text-align:right;font-weight:600">${currSym}${unitCost.toLocaleString()}</td>
                 <td><span class="status-pill status-${po.status}${pulseClass}">${po.status}</span></td>
-                <td class="hidden-lg" style="text-align:right;color:#2563eb;font-weight:700">${currSym}${costOS.toLocaleString()}</td>
                 <td class="hidden-sm" style="${etaStyle}">${po.eta || 'TBD'}</td>
                 <td style="text-align:right">${actionBtn}</td>
             </tr>
             <tr id="details-${po.id}" class="details-row hidden">
-                <td colspan="8" style="padding:0 20px">
+                <td colspan="6" style="padding:0 20px">
                     <div class="details-content details-grid">
                         <div>
                             <p class="detail-label">Origin / Location</p>
@@ -184,10 +179,6 @@ function renderPOTable(data) {
                             <p class="detail-label">Quantity Summary</p>
                             <p class="detail-sub">Total: <span class="detail-val">${po.qty}</span></p>
                             <p class="detail-sub">Remaining: <span style="font-weight:700;color:#ea580c">${po.outstanding_qty}</span></p>
-                        </div>
-                        <div>
-                            <p class="detail-label">Total Volume Cost</p>
-                            <p style="font-size:1rem;font-weight:800;color:#2563eb">${currSym}${(po.qty * unitCost).toLocaleString()}</p>
                         </div>
                         <div style="grid-column:1/-1">
                             <p class="detail-label">Notes / Reference</p>
@@ -221,15 +212,12 @@ function fillForm(po) {
     f.querySelector('[name="description"]').value    = po.description || po.desc || '';
     f.querySelector('[name="qty"]').value            = po.qty;
     f.querySelector('[name="outstanding_qty"]').value= po.outstanding_qty ?? po.qty;
-    f.querySelector('[name="unit_cost"]').value      = po.unit_cost || 0;
-    f.querySelector('[name="currency"]').value       = po.currency || 'USD';
     f.querySelector('[name="location"]').value       = po.location || '';
     f.querySelector('[name="order_date"]').value     = po.order_date || '';
     f.querySelector('[name="eta"]').value            = po.eta || '';
     f.querySelector('[name="ship_date"]').value      = po.ship_date || '';
     f.querySelector('[name="status"]').value         = po.status || 'open';
     f.querySelector('[name="reference"]').value      = po.reference || '';
-    updateFinancialSummary();
 }
 
 function updateUIForRole() {
@@ -255,7 +243,7 @@ function openDrawer(mode = 'create') {
         submitBtn.textContent= 'Save Changes';
         statusGroup.classList.remove('hidden');
         // Role restrictions — ZunPower can only update logistics/status fields
-        const restricted = ['po_number', 'sku', 'qty', 'unit_cost', 'order_date', 'description'];
+        const restricted = ['po_number', 'sku', 'qty', 'order_date', 'description'];
         const isZP = state.role === 'zunpower';
         restricted.forEach(fname => {
             const el = poForm.querySelector(`[name="${fname}"]`);
@@ -275,7 +263,6 @@ function openDrawer(mode = 'create') {
 
     sideDrawer.classList.add('open');
     drawerOverlay.classList.add('visible');
-    updateFinancialSummary();
 }
 
 function closeDrawer() {
@@ -315,11 +302,6 @@ function setupEventListeners() {
         });
     });
 
-    // Financial live recalc
-    ['qty', 'unit_cost', 'outstanding_qty', 'currency'].forEach(field => {
-        const el = poForm.querySelector(`[name="${field}"]`);
-        if (el) el.addEventListener('input', updateFinancialSummary);
-    });
 
     // Mobile menu
     const mobileToggle = document.getElementById('mobileMenuToggle');
@@ -404,14 +386,11 @@ function setupEventListeners() {
             po.description   = fd.get('description') || po.description || po.desc;
             po.desc          = po.description;
             po.qty           = parseInt(fd.get('qty'))         || po.qty;
-            po.unit_cost     = parseFloat(fd.get('unit_cost')) || po.unit_cost || 0;
-            po.currency      = fd.get('currency')  || po.currency || 'USD';
             po.reference     = fd.get('reference') ?? po.reference;
             po.eta           = fd.get('eta')        || po.eta;
             po.order_date    = fd.get('order_date') || po.order_date;
             po.location      = fd.get('location')   || po.location;
             po.item_number   = fd.get('sku')        || po.item_number;
-            po.value         = po.qty * (po.unit_cost || 0);
 
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
             persistState();
@@ -441,8 +420,6 @@ function setupEventListeners() {
                 desc:           fd.get('description'),
                 qty:            parseInt(fd.get('qty'))            || 0,
                 outstanding_qty:parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
-                unit_cost:      parseFloat(fd.get('unit_cost'))    || 0,
-                currency:       fd.get('currency')  || 'USD',
                 reference:      fd.get('reference') || '',
                 status:         'open',
                 eta:            fd.get('eta')        || '',
@@ -594,18 +571,6 @@ function logHistory(po, action) {
     po.history.push({ by: who, action, date: `${date} ${time}` });
 }
 
-// ---- Financial Summary (live) ----
-function updateFinancialSummary() {
-    const fd      = new FormData(poForm);
-    const qty     = parseFloat(fd.get('qty'))             || 0;
-    const cost    = parseFloat(fd.get('unit_cost'))        || 0;
-    const osQty   = parseFloat(fd.get('outstanding_qty'))  || 0;
-
-    const costOS  = document.getElementById('costOS');
-    const costAll = document.getElementById('costAll');
-    if (costOS)  costOS.textContent  = `$ ${(osQty * cost).toLocaleString()}`;
-    if (costAll) costAll.textContent = `$ ${(qty   * cost).toLocaleString()}`;
-}
 
 // ---- Login / Role Switch ----
 function setupLoginLogic() {
