@@ -72,13 +72,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchView('live-board');
 
     // Always force login on fresh page load (unless session is very recent)
-    enforceLoginGate();
+    const sessionValid = enforceLoginGate();
 
-    // Connect to Supabase and sync (runs regardless; data loads in background)
-    const cloudUrl = localStorage.getItem('gma_cloud_url') || CloudService.supabaseUrl;
-    const cloudKey = localStorage.getItem('gma_cloud_key') || CloudService.supabaseKey;
-    await CloudService.init(cloudUrl, cloudKey);
-    await syncWithCloud();
+    // Init API Proxy details
+    await CloudService.init();
+    
+    // Only fetch from backend if already authenticated
+    if (sessionValid) {
+        await syncWithCloud();
+    }
     renderAll();
 });
 
@@ -93,9 +95,10 @@ function enforceLoginGate() {
         state.authenticated = false;
         state.role = null;
         openLoginOverlay();
+        return false;
     } else {
         updateSidebarUser();
-        renderAll();
+        return true;
     }
 }
 
@@ -931,6 +934,10 @@ function setupLoginLogic() {
             errEl.classList.add('hidden');
             localStorage.setItem('gma_last_auth', Date.now().toString());
             persistState();
+            
+            // Sync with secure backend now that cookies are set
+            await syncWithCloud();
+            
             renderAll();
             showToast(`👋 Welcome, ${role === 'dometic' ? 'Dometic Admin' : 'ZunPower'}`);
         } catch (err) {
