@@ -96,6 +96,7 @@ const CloudService = {
     async login(email, password) {
         const resp = await fetch(this.authUrl, {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
