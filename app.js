@@ -6,7 +6,7 @@ const PRIORITY_WEIGHT = { critical: 0, high: 1, normal: 2, low: 3 };
 const PRIORITY_LABELS = {
     critical: { label: 'Critical', icon: '🔴', cls: 'priority-critical' },
     high:     { label: 'High',     icon: '🟠', cls: 'priority-high' },
-    normal:   { label: 'Normal',   icon: '🟡', cls: 'priority-normal' },
+    normal:   { label: 'Normal',   icon: '🟢', cls: 'priority-normal' },
     low:      { label: 'Low',      icon: '⚪', cls: 'priority-low' }
 };
 
@@ -203,10 +203,18 @@ function renderPOTable(data) {
     }
 
     poTableBody.innerHTML = data.map(po => {
-        const pulseClass   = po.status === 'delayed' ? ' pulse' : '';
-        const etaStyle     = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
-        const pMeta        = PRIORITY_LABELS[po.priority || 'normal'];
+        const pulseClass    = po.status === 'delayed' ? ' pulse' : '';
+        const etaStyle      = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
+        const pMeta         = PRIORITY_LABELS[po.priority || 'normal'];
         const hasSpecialReq = (po.special_requests || []).some(r => r.status === 'open');
+
+        // Last update — most recent history entry shown inline
+        const lastEntry  = (po.history || []).slice(-1)[0];
+        const lastUpdate = lastEntry
+            ? `<span class="last-update-who ${lastEntry.by === 'ZunPower' ? 'zp' : 'dom'}">${lastEntry.by}</span>
+               <span class="last-update-text" title="${lastEntry.action}">${lastEntry.action.length > 36 ? lastEntry.action.slice(0, 34) + '…' : lastEntry.action}</span>
+               <span class="last-update-time">${lastEntry.date}</span>`
+            : '<span class="last-update-none">—</span>';
 
         const actionBtn = isZunPower
             ? `<button class="action-link update" onclick="event.stopPropagation(); openEditDrawer('${po.id}')">Update</button>`
@@ -278,15 +286,16 @@ function renderPOTable(data) {
                 <td style="font-weight:600">${po.item_number || '—'}</td>
                 <td><span class="status-pill status-${po.status}${pulseClass}">${po.status}</span></td>
                 <td class="hidden-sm" style="${etaStyle}">${po.eta || 'TBD'}</td>
-                <td class="hidden-sm">
+                <td class="hidden-md">
                     <span style="font-weight:600">${po.qty}</span>
                     <span style="color:#94a3b8;font-size:0.75rem"> / </span>
                     <span style="font-weight:700;color:${po.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${po.outstanding_qty}</span>
                 </td>
+                <td class="hidden-md last-update-cell">${lastUpdate}</td>
                 <td style="text-align:right">${actionBtn}</td>
             </tr>
             <tr id="details-${po.id}" class="details-row hidden">
-                <td colspan="8" style="padding:0 20px">
+                <td colspan="9" style="padding:0 20px">
                     <div class="details-content details-grid">
                         <div>
                             <p class="detail-label">Origin / Location</p>
