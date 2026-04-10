@@ -19,10 +19,8 @@ export default async function handler(req) {
 
   try {
     // Determine target URL for Supabase based on querystring or path
-    // We expect the frontend to pass the target query parameters as ?q=...
     const url = new URL(req.url);
-    const query = url.searchParams.get('q') || '?select=*&order=order_date.desc';
-    const targetUrl = `${SUPABASE_URL}/rest/v1/purchase_orders${query}`;
+    const targetUrl = `${SUPABASE_URL}/rest/v1/purchase_orders${url.search}`;
 
     // Pass the body along if it exists (for POST/PATCH)
     let body = null;

@@ -54,6 +54,7 @@ const CloudService = {
     async _request(url, options = {}) {
         const resp = await fetch(url, {
             ...options,
+            credentials: 'include',
             headers: this._headers(options.headers || {})
         });
 
@@ -116,7 +117,7 @@ const CloudService = {
             return (cached ? JSON.parse(cached).pos : null) || [];
         }
 
-        const url = `${this.apiUrl}?q=?select=*&order=order_date.desc`;
+        const url = `${this.apiUrl}?select=*&order=order_date.desc`;
         const data = await this._request(url);
         return Array.isArray(data) ? data : [];
     },
@@ -164,7 +165,7 @@ const CloudService = {
     async updatePO(poId, updates) {
         if (this.isMock) return true;
 
-        const url = `${this.apiUrl}?q=?id=eq.${encodeURIComponent(poId)}`;
+        const url = `${this.apiUrl}?id=eq.${encodeURIComponent(poId)}`;
         const opts = { method: 'PATCH', headers: { 'Prefer': 'return=minimal' } };
 
         // If we already know extended columns are missing, strip them immediately
@@ -195,7 +196,7 @@ const CloudService = {
     async deletePO(poId) {
         if (this.isMock) return true;
 
-        const url = `${this.apiUrl}?q=?id=eq.${encodeURIComponent(poId)}`;
+        const url = `${this.apiUrl}?id=eq.${encodeURIComponent(poId)}`;
         return this._request(url, { method: 'DELETE' });
     },
 
