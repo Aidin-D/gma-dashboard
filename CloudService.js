@@ -19,8 +19,9 @@
  */
 
 const CloudService = {
-    supabaseUrl: 'https://hettdkznujeabmckkvni.supabase.co',
-    supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhldHRka3pudWplYWJtY2trdm5pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NzMyNjksImV4cCI6MjA5MTE0OTI2OX0.byriabl_RZcELa6gnla6j5LZT7r6DFxkm2fW6e9QycQ',
+    // Traffic routed through secure Vercel API backend
+    apiUrl: '/api/pos',
+    authUrl: '/api/auth',
     isMock: false,
     _table: 'purchase_orders',
 
@@ -45,8 +46,6 @@ const CloudService = {
 
     _headers(extra = {}) {
         return {
-            'apikey': this.supabaseKey,
-            'Authorization': `Bearer ${this.supabaseKey}`,
             'Content-Type': 'application/json',
             ...extra
         };
@@ -87,22 +86,22 @@ const CloudService = {
         );
     },
 
-    // ---- Init ----
+    // ---- Init & Auth ----
 
-    async init(url, key) {
-        if (url && key) {
-            this.supabaseUrl = url.trim().replace(/\/$/, '');
-            this.supabaseKey = key.trim();
-        }
+    async init() {
+        console.log(`[CloudService] Initialized — Secure API Proxy Mode`);
+    },
 
-        // A valid Supabase anon key is always a JWT starting with "eyJ"
-        this.isMock = !this.supabaseKey.startsWith('eyJ');
-
-        if (this.isMock) {
-            console.warn('[CloudService] Key does not look like a Supabase JWT — running in Demo Mode.');
-        }
-
-        console.log(`[CloudService] Initialized — ${this.isMock ? 'DEMO MODE (local only)' : 'LIVE MODE (Supabase)'}`);
+    async login(email, password) {
+        const resp = await fetch(this.authUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        
+        if (!resp.ok) throw new Error('Invalid credentials');
+        const data = await resp.json();
+        return data.role;
     },
 
     // ---- CRUD ----
@@ -117,7 +116,7 @@ const CloudService = {
             return (cached ? JSON.parse(cached).pos : null) || [];
         }
 
-        const url = `${this.supabaseUrl}/rest/v1/${this._table}?select=*&order=order_date.desc`;
+        const url = `${this.apiUrl}?q=?select=*&order=order_date.desc`;
         const data = await this._request(url);
         return Array.isArray(data) ? data : [];
     },
@@ -129,7 +128,7 @@ const CloudService = {
     async createPO(po) {
         if (this.isMock) return po;
 
-        const url = `${this.supabaseUrl}/rest/v1/${this._table}`;
+        const url = this.apiUrl;
         const opts = { method: 'POST', headers: { 'Prefer': 'return=representation' } };
 
         // Try with full row (includes priority + special_requests if available)
@@ -165,7 +164,7 @@ const CloudService = {
     async updatePO(poId, updates) {
         if (this.isMock) return true;
 
-        const url = `${this.supabaseUrl}/rest/v1/${this._table}?id=eq.${encodeURIComponent(poId)}`;
+        const url = `${this.apiUrl}?q=?id=eq.${encodeURIComponent(poId)}`;
         const opts = { method: 'PATCH', headers: { 'Prefer': 'return=minimal' } };
 
         // If we already know extended columns are missing, strip them immediately
@@ -196,7 +195,7 @@ const CloudService = {
     async deletePO(poId) {
         if (this.isMock) return true;
 
-        const url = `${this.supabaseUrl}/rest/v1/${this._table}?id=eq.${encodeURIComponent(poId)}`;
+        const url = `${this.apiUrl}?q=?id=eq.${encodeURIComponent(poId)}`;
         return this._request(url, { method: 'DELETE' });
     },
 

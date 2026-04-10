@@ -593,8 +593,7 @@ function setupEventListeners() {
     const sidebarSwitchBtn = document.getElementById('sidebarSwitchBtn');
     if (sidebarSwitchBtn) {
         sidebarSwitchBtn.addEventListener('click', () => {
-            const nextRole = state.role === 'dometic' ? 'zunpower' : 'dometic';
-            openRoleSwitchOverlay(nextRole);
+            openRoleSwitchOverlay();
         });
     }
 
@@ -904,64 +903,41 @@ function logHistory(po, action) {
 
 
 // ---- Login / Role Switch ----
-function openRoleSwitchOverlay(targetRole) {
+function openRoleSwitchOverlay() {
     const overlay  = document.getElementById('loginOverlay');
-    const roleBtns = overlay.querySelectorAll('.login-role-btn');
-    roleBtns.forEach(b => b.classList.toggle('active', b.getAttribute('data-target-role') === targetRole));
-    document.getElementById('passcode').value = '';
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPassword').value = '';
     document.getElementById('loginError').classList.add('hidden');
     overlay.classList.add('active');
-    setTimeout(() => document.getElementById('passcode').focus(), 250);
+    setTimeout(() => document.getElementById('loginEmail').focus(), 250);
 }
 
 function setupLoginLogic() {
-    const overlay  = document.getElementById('loginOverlay');
-    const roleBtns = document.querySelectorAll('.login-role-btn');
-    let selectedRole = 'dometic';
-
-    roleBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            roleBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            selectedRole = btn.dataset.targetRole;
-        });
-    });
-
-    // Resolve initial role from active button
-    const activeBtn = overlay.querySelector('.login-role-btn.active');
-    if (activeBtn) selectedRole = activeBtn.dataset.targetRole;
-
+    const overlay   = document.getElementById('loginOverlay');
     const loginForm = document.getElementById('loginForm');
     if (!loginForm) return;
 
-    loginForm.addEventListener('submit', e => {
+    loginForm.addEventListener('submit', async e => {
         e.preventDefault();
-        const passcode = document.getElementById('passcode').value.trim();
-        // Passcodes: Dometic = 7890 · ZunPower = 1234
-        const correct  = selectedRole === 'dometic' ? '7890' : '1234';
+        const email    = document.getElementById('loginEmail').value.trim();
+        const password = document.getElementById('loginPassword').value;
         const errEl    = document.getElementById('loginError');
 
-        if (passcode === correct) {
-            state.role          = selectedRole;
+        try {
+            const role = await CloudService.login(email, password);
+            state.role          = role;
             state.authenticated = true;
             overlay.classList.remove('active');
-            document.getElementById('passcode').value = '';
             errEl.classList.add('hidden');
             localStorage.setItem('gma_last_auth', Date.now().toString());
             persistState();
             renderAll();
-            showToast(`👋 Welcome, ${selectedRole === 'dometic' ? 'Dometic Admin' : 'ZunPower'}`);
-        } else {
+            showToast(`👋 Welcome, ${role === 'dometic' ? 'Dometic Admin' : 'ZunPower'}`);
+        } catch (err) {
+            errEl.textContent = 'Invalid email or password.';
             errEl.classList.remove('hidden');
-            document.getElementById('passcode').value = '';
-            document.getElementById('passcode').focus();
-        }
-    });
-
-    // PIN keyboard — auto-submit on 4 digits
-    document.getElementById('passcode').addEventListener('input', function() {
-        if (this.value.length === 4) {
-            setTimeout(() => loginForm.dispatchEvent(new Event('submit')), 100);
+            document.getElementById('loginPassword').value = '';
+            document.getElementById('loginPassword').focus();
         }
     });
 }
