@@ -1,5 +1,14 @@
-// GMA Live Dashboard — App Logic v2.1
-// Supabase-backed · Role-Aware · Audit Trail
+// GMA Live Dashboard — App Logic v3.0
+// Priority System · Special Requests · Login Gate · Supabase Sync
+
+// ---- Priority Levels (order = sort weight) ----
+const PRIORITY_WEIGHT = { critical: 0, high: 1, normal: 2, low: 3 };
+const PRIORITY_LABELS = {
+    critical: { label: 'Critical', icon: '🔴', cls: 'priority-critical' },
+    high:     { label: 'High',     icon: '🟠', cls: 'priority-high' },
+    normal:   { label: 'Normal',   icon: '🟡', cls: 'priority-normal' },
+    low:      { label: 'Low',      icon: '⚪', cls: 'priority-low' }
+};
 
 // ---- Seed Data (fallback when cloud is empty) ----
 const SEED_POS = [
@@ -9,6 +18,7 @@ const SEED_POS = [
         qty: 150, status: 'shipped', eta: '2024-04-12', value: 125000,
         order_date: '2024-03-01', ship_date: '2024-04-05', outstanding_qty: 0,
         location: 'DCIN', currency: 'USD', unit_cost: 833.33, reference: 'Batch A-12',
+        priority: 'normal', special_requests: [],
         history: [
             { by: 'Dometic',  action: 'Created PO',                date: '2024-03-01 09:15' },
             { by: 'ZunPower', action: 'Status → Production',        date: '2024-03-18 14:30' },
@@ -22,6 +32,7 @@ const SEED_POS = [
         qty: 300, status: 'production', eta: '2024-04-25', value: 98000,
         order_date: '2024-03-15', ship_date: '', outstanding_qty: 300,
         location: 'FTN', currency: 'USD', unit_cost: 326.66, reference: 'Urgent demand',
+        priority: 'high', special_requests: [],
         history: [
             { by: 'Dometic',  action: 'Created PO',          date: '2024-03-15 11:00' },
             { by: 'ZunPower', action: 'Status → Production',  date: '2024-03-22 08:20' }
@@ -31,9 +42,10 @@ const SEED_POS = [
 
 // ---- State ----
 let state = {
-    role: 'dometic',
+    role: null,          // null = not authenticated yet
     currentView: 'live-board',
-    pos: [...SEED_POS]
+    pos: [...SEED_POS],
+    authenticated: false
 };
 
 // ---- DOM Refs ----
@@ -46,17 +58,23 @@ const closeModal    = document.getElementById('closeModal');
 const cancelModal   = document.getElementById('cancelModal');
 const searchInput   = document.getElementById('searchInput');
 
-let activeStatusFilter = 'all';
+let activeStatusFilter   = 'all';
+let activePriorityFilter = null;
+let activeSortBy         = 'priority';
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', async () => {
     loadLocalState();
     setupEventListeners();
     setupLoginLogic();
+    setupSpecialRequestModal();
+    setupPrioritySelector();
     switchView('live-board');
-    renderAll();
 
-    // Connect to Supabase and sync
+    // Always force login on fresh page load (unless session is very recent)
+    enforceLoginGate();
+
+    // Connect to Supabase and sync (runs regardless; data loads in background)
     const cloudUrl = localStorage.getItem('gma_cloud_url') || CloudService.supabaseUrl;
     const cloudKey = localStorage.getItem('gma_cloud_key') || CloudService.supabaseKey;
     await CloudService.init(cloudUrl, cloudKey);
@@ -64,11 +82,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAll();
 });
 
+// ---- Login Gate ----
+function enforceLoginGate() {
+    // Check if we have a valid recent session (within 8 hours)
+    const lastAuth  = parseInt(localStorage.getItem('gma_last_auth') || '0', 10);
+    const sessionTTL = 8 * 60 * 60 * 1000; // 8 hours
+    const sessionValid = state.authenticated && (Date.now() - lastAuth) < sessionTTL;
+
+    if (!sessionValid) {
+        state.authenticated = false;
+        state.role = null;
+        openLoginOverlay();
+    } else {
+        updateSidebarUser();
+        renderAll();
+    }
+}
+
+function openLoginOverlay() {
+    const overlay = document.getElementById('loginOverlay');
+    overlay.classList.add('active');
+    // Ensure no cancel button — user MUST log in
+    setTimeout(() => {
+        const passcodeInput = document.getElementById('passcode');
+        if (passcodeInput) passcodeInput.focus();
+    }, 300);
+}
+
 // ---- Render ----
 function renderAll() {
+    if (!state.authenticated) return; // Don't render if not logged in
     renderStats();
-    filterAndRenderTable();
+    sortAndFilterRenderTable();
     updateUIForRole();
+    updateSidebarUser();
 }
 
 function renderStats() {
@@ -76,17 +123,22 @@ function renderStats() {
     const inProd  = state.pos.filter(po => po.status === 'production').length;
     const shipped = state.pos.filter(po => po.status === 'shipped').length;
     const atRisk  = state.pos.filter(po => po.status === 'delayed').length;
+    const specReq = state.pos.filter(po => (po.special_requests || []).some(r => r.status === 'open')).length;
 
-    setText('statInProduction', `${inProd} Orders`);
-    setText('statShipped',      `${shipped} Orders`);
-    setText('statAtRisk',       `${atRisk} Orders`);
+    setText('statInProduction',    `${inProd} Orders`);
+    setText('statShipped',         `${shipped} Orders`);
+    setText('statAtRisk',          `${atRisk} Orders`);
+    setText('statSpecialRequests', `${specReq} Open`);
 
-    const pProd = document.getElementById('barProduction');
-    const pShip = document.getElementById('barShipped');
-    const pRisk = document.getElementById('barAtRisk');
-    if (pProd) pProd.style.width = `${(inProd / totalOrders) * 100}%`;
-    if (pShip) pShip.style.width = `${(shipped / totalOrders) * 100}%`;
-    if (pRisk) pRisk.style.width = `${(atRisk / totalOrders) * 100}%`;
+    setBar('barProduction',     inProd,   totalOrders);
+    setBar('barShipped',        shipped,  totalOrders);
+    setBar('barAtRisk',         atRisk,   totalOrders);
+    setBar('barSpecialRequests',specReq,  totalOrders);
+}
+
+function setBar(id, val, total) {
+    const el = document.getElementById(id);
+    if (el) el.style.width = `${Math.min(100, (val / total) * 100)}%`;
 }
 
 function setText(id, value) {
@@ -94,9 +146,11 @@ function setText(id, value) {
     if (el) el.textContent = value;
 }
 
-function filterAndRenderTable() {
+// ---- Sort + Filter + Render ----
+function sortAndFilterRenderTable() {
     const query = (searchInput.value || '').toLowerCase();
-    const filtered = state.pos.filter(po => {
+
+    let filtered = state.pos.filter(po => {
         const matchesQuery = (
             po.id.toLowerCase().includes(query) ||
             (po.item_number   || '').toLowerCase().includes(query) ||
@@ -104,18 +158,55 @@ function filterAndRenderTable() {
             (po.location      || '').toLowerCase().includes(query) ||
             (po.reference     || '').toLowerCase().includes(query)
         );
-        const matchesStatus = (activeStatusFilter === 'all' || po.status === activeStatusFilter);
-        return matchesQuery && matchesStatus;
+        const matchesStatus   = (activeStatusFilter === 'all' || po.status === activeStatusFilter);
+        const matchesPriority = !activePriorityFilter || po.priority === activePriorityFilter;
+        return matchesQuery && matchesStatus && matchesPriority;
     });
+
+    // Sort
+    filtered = sortPOs(filtered, activeSortBy);
     renderPOTable(filtered);
+}
+
+function sortPOs(list, by) {
+    return [...list].sort((a, b) => {
+        switch (by) {
+            case 'priority':
+                return (PRIORITY_WEIGHT[a.priority] ?? 2) - (PRIORITY_WEIGHT[b.priority] ?? 2);
+            case 'eta':
+                return (a.eta || '9999') < (b.eta || '9999') ? -1 : 1;
+            case 'eta_desc':
+                return (a.eta || '0000') > (b.eta || '0000') ? -1 : 1;
+            case 'qty':
+                return (b.qty || 0) - (a.qty || 0);
+            case 'status': {
+                const s = { delayed: 0, production: 1, open: 2, shipped: 3 };
+                return (s[a.status] ?? 99) - (s[b.status] ?? 99);
+            }
+            default:
+                return 0;
+        }
+    });
 }
 
 function renderPOTable(data) {
     const isZunPower = state.role === 'zunpower';
 
+    if (data.length === 0) {
+        poTableBody.innerHTML = `
+            <tr>
+                <td colspan="8" style="text-align:center;padding:40px;color:var(--slate-400);font-size:0.85rem">
+                    No purchase orders match the current filters.
+                </td>
+            </tr>`;
+        return;
+    }
+
     poTableBody.innerHTML = data.map(po => {
         const pulseClass   = po.status === 'delayed' ? ' pulse' : '';
         const etaStyle     = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
+        const pMeta        = PRIORITY_LABELS[po.priority || 'normal'];
+        const hasSpecialReq = (po.special_requests || []).some(r => r.status === 'open');
 
         const actionBtn = isZunPower
             ? `<button class="action-link update" onclick="event.stopPropagation(); openEditDrawer('${po.id}')">Update</button>`
@@ -139,7 +230,7 @@ function renderPOTable(data) {
             </div>` : '';
 
         // History timeline
-        const historyLog  = (po.history || []).slice().reverse();
+        const historyLog   = (po.history || []).slice().reverse();
         const historyPanel = historyLog.length > 0 ? `
             <div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px">
                 <p class="detail-label" style="margin-bottom:10px">Update History</p>
@@ -158,19 +249,44 @@ function renderPOTable(data) {
                 </div>
             </div>` : '';
 
+        // Special requests panel (expanded view)
+        const srList = (po.special_requests || []);
+        const srPanel = srList.length > 0 ? `
+            <div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px">
+                <p class="detail-label" style="margin-bottom:10px;color:#7c3aed">Special Requests</p>
+                ${srList.map(sr => `
+                    <div class="sr-entry sr-status-${sr.status}">
+                        <div class="sr-entry-header">
+                            <span class="sr-type-tag">${srTypeLabel(sr.type)}</span>
+                            <span class="sr-entry-status">${sr.status === 'open' ? '🔔 Open' : '✅ Resolved'}</span>
+                            <span class="sr-entry-date">${sr.date}</span>
+                        </div>
+                        <p class="sr-entry-notes">${sr.notes || '—'}</p>
+                    </div>`).join('')}
+            </div>` : '';
+
         return `
-            <tr class="expandable-row" onclick="toggleRow('${po.id}')">
+            <tr class="expandable-row po-priority-${po.priority || 'normal'}" onclick="toggleRow('${po.id}')">
                 <td style="width:36px;padding-left:20px">
                     <svg id="icon-${po.id}" style="width:14px;height:14px;transition:transform 0.2s;color:#94a3b8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </td>
+                <td>
+                    <span class="priority-badge ${pMeta.cls}">${pMeta.icon} ${pMeta.label}</span>
+                    ${hasSpecialReq ? '<span class="sr-flag" title="Has open special request">SR</span>' : ''}
                 </td>
                 <td style="font-weight:700;color:#1e293b">${po.id}</td>
                 <td style="font-weight:600">${po.item_number || '—'}</td>
                 <td><span class="status-pill status-${po.status}${pulseClass}">${po.status}</span></td>
                 <td class="hidden-sm" style="${etaStyle}">${po.eta || 'TBD'}</td>
+                <td class="hidden-sm">
+                    <span style="font-weight:600">${po.qty}</span>
+                    <span style="color:#94a3b8;font-size:0.75rem"> / </span>
+                    <span style="font-weight:700;color:${po.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${po.outstanding_qty}</span>
+                </td>
                 <td style="text-align:right">${actionBtn}</td>
             </tr>
             <tr id="details-${po.id}" class="details-row hidden">
-                <td colspan="6" style="padding:0 20px">
+                <td colspan="8" style="padding:0 20px">
                     <div class="details-content details-grid">
                         <div>
                             <p class="detail-label">Origin / Location</p>
@@ -186,16 +302,26 @@ function renderPOTable(data) {
                             <p class="detail-sub">Total: <span class="detail-val">${po.qty}</span></p>
                             <p class="detail-sub">Remaining: <span style="font-weight:700;color:#ea580c">${po.outstanding_qty}</span></p>
                         </div>
+                        <div>
+                            <p class="detail-label">Description</p>
+                            <p class="detail-value">${po.description || po.desc || '—'}</p>
+                        </div>
                         <div style="grid-column:1/-1">
                             <p class="detail-label">Notes / Reference</p>
                             <p class="detail-value" style="font-style:italic">${po.reference || 'No additional comments.'}</p>
                         </div>
+                        ${srPanel}
                         ${zunPowerPanel}
                         ${historyPanel}
                     </div>
                 </td>
             </tr>`;
     }).join('');
+}
+
+function srTypeLabel(type) {
+    const labels = { split: 'Split Shipment', expedite: 'Expedite', hold: 'Hold Shipment', reroute: 'Re-Route', partial: 'Partial Release', other: 'Other' };
+    return labels[type] || type;
 }
 
 // ---- Row Expand ----
@@ -224,6 +350,14 @@ function fillForm(po) {
     f.querySelector('[name="ship_date"]').value      = po.ship_date || '';
     f.querySelector('[name="status"]').value         = po.status || 'open';
     f.querySelector('[name="reference"]').value      = po.reference || '';
+    f.querySelector('[name="priority"]').value       = po.priority || 'normal';
+    setPriorityUI(po.priority || 'normal');
+}
+
+function setPriorityUI(priority) {
+    document.querySelectorAll('.priority-opt').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-priority-val') === priority);
+    });
 }
 
 function updateUIForRole() {
@@ -235,12 +369,25 @@ function updateUIForRole() {
     });
 }
 
+function updateSidebarUser() {
+    const nameEl   = document.getElementById('sidebarUserName');
+    const roleEl   = document.getElementById('sidebarUserRole');
+    const avatarEl = document.getElementById('sidebarUserAvatar');
+    if (!nameEl) return;
+    const isZP = state.role === 'zunpower';
+    nameEl.textContent   = isZP ? 'ZunPower' : 'Dometic';
+    roleEl.textContent   = isZP ? 'Supplier Access' : 'Admin';
+    avatarEl.textContent = isZP ? 'Z' : 'D';
+    avatarEl.className   = 'sidebar-user-avatar ' + (isZP ? 'zp' : 'dom');
+}
+
 function openDrawer(mode = 'create') {
     const title       = document.querySelector('.drawer-header h3');
     const subtitle    = document.querySelector('.drawer-header .subtitle');
     const submitBtn   = document.querySelector('.btn-submit');
     const statusGroup = document.getElementById('statusFieldGroup');
     const deleteBtn   = document.getElementById('deletePOBtn');
+    const specialBtn  = document.getElementById('specialRequestBtn');
     const poInput     = poForm.querySelector('[name="po_number"]');
 
     if (mode === 'edit' && editingPOId) {
@@ -248,6 +395,7 @@ function openDrawer(mode = 'create') {
         subtitle.textContent = state.role === 'zunpower' ? 'ZunPower Partner Update' : 'Dometic Admin Edit';
         submitBtn.textContent= 'Save Changes';
         statusGroup.classList.remove('hidden');
+        specialBtn.classList.remove('hidden');
         // Role restrictions — ZunPower can only update logistics/status fields
         const restricted = ['po_number', 'sku', 'qty', 'order_date', 'description'];
         const isZP = state.role === 'zunpower';
@@ -263,8 +411,11 @@ function openDrawer(mode = 'create') {
         submitBtn.textContent= 'Commit Order';
         statusGroup.classList.add('hidden');
         deleteBtn.classList.add('hidden');
+        specialBtn.classList.add('hidden');
         poInput.readOnly = false;
         editingPOId = null;
+        setPriorityUI('normal');
+        poForm.querySelector('[name="priority"]').value = 'normal';
     }
 
     sideDrawer.classList.add('open');
@@ -281,33 +432,162 @@ function closeDrawer() {
     });
     document.getElementById('statusFieldGroup').classList.add('hidden');
     document.getElementById('deletePOBtn').classList.add('hidden');
+    document.getElementById('specialRequestBtn').classList.add('hidden');
     editingPOId = null;
+    setPriorityUI('normal');
+}
+
+// ---- Priority Selector ----
+function setupPrioritySelector() {
+    document.querySelectorAll('.priority-opt').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const val = btn.getAttribute('data-priority-val');
+            document.querySelector('[name="priority"]').value = val;
+            setPriorityUI(val);
+        });
+    });
+}
+
+// ---- Special Request Modal ----
+let specialRequestPOId = null;
+let selectedSRType     = 'split';
+
+window.openSpecialRequestModal = function() {
+    if (!editingPOId) return;
+    specialRequestPOId = editingPOId;
+    const po = state.pos.find(p => p.id === editingPOId);
+
+    document.getElementById('specialRequestPOLabel').textContent = `${po ? po.id : ''} — ${po ? (po.description || po.desc || '') : ''}`;
+    document.getElementById('srRequestedBy').value = state.role === 'zunpower' ? 'ZunPower' : 'Dometic';
+    document.getElementById('srNotes').value = '';
+
+    selectSRType('split');
+
+    const modal = document.getElementById('specialRequestModal');
+    modal.classList.add('active');
+};
+
+function setupSpecialRequestModal() {
+    // Type selector
+    document.querySelectorAll('.sr-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            selectSRType(btn.getAttribute('data-sr-type'));
+        });
+    });
+
+    document.getElementById('closeSpecialRequestModal').addEventListener('click', closeSpecialRequestModal);
+    document.getElementById('cancelSR').addEventListener('click', closeSpecialRequestModal);
+
+    document.getElementById('submitSR').addEventListener('click', submitSpecialRequest);
+}
+
+function selectSRType(type) {
+    selectedSRType = type;
+    document.querySelectorAll('.sr-type-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-sr-type') === type));
+
+    // Toggle panels
+    document.getElementById('srSplitPanel').classList.toggle('hidden',   type !== 'split');
+    document.getElementById('srExpeditePanel').classList.toggle('hidden', type !== 'expedite');
+}
+
+function closeSpecialRequestModal() {
+    document.getElementById('specialRequestModal').classList.remove('active');
+}
+
+async function submitSpecialRequest() {
+    const po = state.pos.find(p => p.id === specialRequestPOId);
+    if (!po) return;
+
+    const notes = document.getElementById('srNotes').value.trim();
+    const by    = document.getElementById('srRequestedBy').value;
+
+    const sr = {
+        type:   selectedSRType,
+        notes,
+        by,
+        date:   new Date().toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        status: 'open'
+    };
+
+    // Attach split details if applicable
+    if (selectedSRType === 'split') {
+        sr.split = [
+            { qty: parseInt(document.getElementById('srSplit1Qty').value) || 0, eta: document.getElementById('srSplit1Date').value },
+            { qty: parseInt(document.getElementById('srSplit2Qty').value) || 0, eta: document.getElementById('srSplit2Date').value }
+        ];
+    }
+    if (selectedSRType === 'expedite') {
+        sr.new_eta    = document.getElementById('srExpediteDate').value;
+        sr.exp_reason = document.getElementById('srExpediteReason').value;
+    }
+
+    if (!po.special_requests) po.special_requests = [];
+    po.special_requests.push(sr);
+
+    const actionLabel = `Special Request: ${srTypeLabel(selectedSRType)}${notes ? ' — ' + notes.slice(0, 60) : ''}`;
+    logHistory(po, actionLabel);
+
+    persistState();
+    await CloudService.updatePO(po.id, { special_requests: po.special_requests, history: po.history })
+        .catch(err => console.warn('[SR] Could not sync special request:', err));
+
+    closeSpecialRequestModal();
+    renderAll();
+    showToast(`✅ Special request submitted for ${po.id}`);
+}
+
+// ---- Toast Notification ----
+function showToast(msg, type = 'success') {
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;display:flex;flex-direction:column;gap:8px';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => { toast.classList.add('toast-visible'); }, 10);
+    setTimeout(() => {
+        toast.classList.remove('toast-visible');
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
 }
 
 // ---- Events ----
 function setupEventListeners() {
     // Search
-    searchInput.addEventListener('input', filterAndRenderTable);
+    searchInput.addEventListener('input', sortAndFilterRenderTable);
+
+    // Sort select
+    const sortSel = document.getElementById('sortSelect');
+    if (sortSel) {
+        sortSel.addEventListener('change', () => {
+            activeSortBy = sortSel.value;
+            sortAndFilterRenderTable();
+        });
+    }
 
     // Role Toggle buttons
     document.querySelectorAll('.role-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const role = btn.getAttribute('data-role');
             if (role !== state.role) {
-                // Pre-select the right tab in the login overlay
-                const overlay = document.getElementById('loginOverlay');
-                const targetBtn = overlay.querySelector(`.login-role-btn[data-target-role="${role}"]`);
-                if (targetBtn) {
-                    overlay.querySelectorAll('.login-role-btn').forEach(b => b.classList.remove('active'));
-                    targetBtn.classList.add('active');
-                }
-                overlay.classList.add('active');
-                document.getElementById('passcode').value = '';
-                document.getElementById('loginError').classList.add('hidden');
+                openRoleSwitchOverlay(role);
             }
         });
     });
 
+    // Sidebar switch button
+    const sidebarSwitchBtn = document.getElementById('sidebarSwitchBtn');
+    if (sidebarSwitchBtn) {
+        sidebarSwitchBtn.addEventListener('click', () => {
+            const nextRole = state.role === 'dometic' ? 'zunpower' : 'dometic';
+            openRoleSwitchOverlay(nextRole);
+        });
+    }
 
     // Mobile menu
     const mobileToggle = document.getElementById('mobileMenuToggle');
@@ -331,13 +611,34 @@ function setupEventListeners() {
         });
     });
 
-    // Filter buttons
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    // Status Filter buttons
+    document.querySelectorAll('.filter-btn:not(.priority-filter-btn)').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            // Clear priority filter when status filter clicked
+            document.querySelectorAll('.priority-filter-btn').forEach(b => b.classList.remove('active'));
+            activePriorityFilter = null;
+
+            document.querySelectorAll('.filter-btn:not(.priority-filter-btn)').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             activeStatusFilter = btn.getAttribute('data-status');
-            filterAndRenderTable();
+            sortAndFilterRenderTable();
+        });
+    });
+
+    // Priority filter buttons
+    document.querySelectorAll('.priority-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const p = btn.getAttribute('data-priority');
+            if (activePriorityFilter === p) {
+                // Toggle off
+                activePriorityFilter = null;
+                btn.classList.remove('active');
+            } else {
+                document.querySelectorAll('.priority-filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                activePriorityFilter = p;
+            }
+            sortAndFilterRenderTable();
         });
     });
 
@@ -369,6 +670,7 @@ function setupEventListeners() {
             const newStatus   = fd.get('status');
             const newShipDate = fd.get('ship_date');
             const newOutstanding = parseInt(fd.get('outstanding_qty'));
+            const newPriority = fd.get('priority');
 
             if (newStatus && newStatus !== po.status) {
                 changes.push(`Status → ${cap(newStatus)}`);
@@ -382,8 +684,12 @@ function setupEventListeners() {
                 changes.push(`Outstanding Qty → ${newOutstanding}`);
                 po.outstanding_qty = newOutstanding;
             }
+            if (newPriority && newPriority !== po.priority) {
+                changes.push(`Priority → ${cap(newPriority)}`);
+                po.priority = newPriority;
+            }
 
-            const newPoId    = fd.get('po_number');
+            const newPoId = fd.get('po_number');
             if (newPoId && newPoId !== po.id) {
                 changes.push(`ID changed to ${newPoId}`);
                 po.id = newPoId;
@@ -401,39 +707,43 @@ function setupEventListeners() {
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
             persistState();
             await CloudService.updatePO(editingPOId, {
-                id:             po.id,
-                description:    po.description,
-                qty:            po.qty,
-                outstanding_qty:po.outstanding_qty,
-                unit_cost:      po.unit_cost,
-                currency:       po.currency,
-                reference:      po.reference,
-                eta:            po.eta,
-                ship_date:      po.ship_date,
-                order_date:     po.order_date,
-                location:       po.location,
-                status:         po.status,
-                item_number:    po.item_number,
-                value:          po.value,
-                history:        po.history
+                id:              po.id,
+                description:     po.description,
+                qty:             po.qty,
+                outstanding_qty: po.outstanding_qty,
+                unit_cost:       po.unit_cost,
+                currency:        po.currency,
+                reference:       po.reference,
+                eta:             po.eta,
+                ship_date:       po.ship_date,
+                order_date:      po.order_date,
+                location:        po.location,
+                status:          po.status,
+                item_number:     po.item_number,
+                value:           po.value,
+                priority:        po.priority,
+                special_requests: po.special_requests,
+                history:         po.history
             }).catch(err => console.warn('[Save] Update failed:', err));
 
         } else {
             const newPO = {
-                id:             fd.get('po_number'),
-                item_number:    fd.get('sku'),
-                description:    fd.get('description'),
-                desc:           fd.get('description'),
-                qty:            parseInt(fd.get('qty'))            || 0,
-                outstanding_qty:parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
-                reference:      fd.get('reference') || '',
-                status:         'open',
-                eta:            fd.get('eta')        || '',
-                order_date:     fd.get('order_date') || today(),
-                ship_date:      fd.get('ship_date')  || '',
-                location:       fd.get('location')   || 'OTHERS',
-                value:          (parseInt(fd.get('qty')) || 0) * (parseFloat(fd.get('unit_cost')) || 0),
-                history:        []
+                id:              fd.get('po_number'),
+                item_number:     fd.get('sku'),
+                description:     fd.get('description'),
+                desc:            fd.get('description'),
+                qty:             parseInt(fd.get('qty'))            || 0,
+                outstanding_qty: parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
+                reference:       fd.get('reference') || '',
+                status:          'open',
+                priority:        fd.get('priority') || 'normal',
+                eta:             fd.get('eta')        || '',
+                order_date:      fd.get('order_date') || today(),
+                ship_date:       fd.get('ship_date')  || '',
+                location:        fd.get('location')   || 'OTHERS',
+                value:           (parseInt(fd.get('qty')) || 0) * (parseFloat(fd.get('unit_cost')) || 0),
+                special_requests: [],
+                history:         []
             };
             logHistory(newPO, 'Created PO');
             state.pos.unshift(newPO);
@@ -444,6 +754,7 @@ function setupEventListeners() {
 
         renderAll();
         closeDrawer();
+        showToast(`✅ PO saved successfully`);
     });
 }
 
@@ -472,11 +783,12 @@ function loadLocalState() {
         const saved = localStorage.getItem('gma_dash_state');
         if (saved) {
             const parsed = JSON.parse(saved);
-            // Only restore pos if we have records saved locally
             if (Array.isArray(parsed.pos) && parsed.pos.length > 0) {
                 state.pos = parsed.pos;
             }
-            state.role = parsed.role || 'dometic';
+            // Don't restore role automatically — always require re-login
+            // But keep authenticated flag from session check
+            state.authenticated = parsed.authenticated || false;
         }
     } catch (e) {
         console.warn('[State] Could not parse localStorage state:', e);
@@ -498,12 +810,15 @@ async function syncWithCloud() {
         const cloudPOs = await CloudService.getPOs();
 
         if (Array.isArray(cloudPOs) && cloudPOs.length > 0) {
-            // Cloud has data — use it
-            state.pos = cloudPOs;
+            // Ensure special_requests field exists on all POs
+            state.pos = cloudPOs.map(po => ({
+                ...po,
+                priority:         po.priority         || 'normal',
+                special_requests: po.special_requests || []
+            }));
             persistState();
             console.log(`[Sync] Loaded ${cloudPOs.length} POs from Supabase.`);
         } else if (!CloudService.isMock && state.pos.length > 0) {
-            // Cloud table is empty but we have local data — seed it
             console.log('[Sync] Supabase table is empty. Seeding with local data...');
             for (const po of state.pos) {
                 await CloudService.createPO(po).catch(err =>
@@ -533,7 +848,7 @@ window.quickUpdateField = async function(id, field, value) {
     if (!po) return;
 
     po[field] = field === 'outstanding_qty' ? parseInt(value) : value;
-    const label = { status: 'Status', ship_date: 'Ship Date', outstanding_qty: 'Outstanding Qty', location: 'Location' }[field] || field;
+    const label = { status: 'Status', ship_date: 'Ship Date', outstanding_qty: 'Outstanding Qty', location: 'Location', priority: 'Priority' }[field] || field;
     logHistory(po, `${label} → ${cap(value)}`);
 
     persistState();
@@ -565,6 +880,7 @@ window.deletePO = async function() {
 
     closeDrawer();
     renderAll();
+    showToast(`🗑 PO deleted`, 'warning');
 };
 
 // ---- Audit Trail ----
@@ -579,10 +895,20 @@ function logHistory(po, action) {
 
 
 // ---- Login / Role Switch ----
+function openRoleSwitchOverlay(targetRole) {
+    const overlay  = document.getElementById('loginOverlay');
+    const roleBtns = overlay.querySelectorAll('.login-role-btn');
+    roleBtns.forEach(b => b.classList.toggle('active', b.getAttribute('data-target-role') === targetRole));
+    document.getElementById('passcode').value = '';
+    document.getElementById('loginError').classList.add('hidden');
+    overlay.classList.add('active');
+    setTimeout(() => document.getElementById('passcode').focus(), 250);
+}
+
 function setupLoginLogic() {
-    const overlay    = document.getElementById('loginOverlay');
-    const roleBtns   = document.querySelectorAll('.login-role-btn');
-    let   selectedRole = 'dometic';
+    const overlay  = document.getElementById('loginOverlay');
+    const roleBtns = document.querySelectorAll('.login-role-btn');
+    let selectedRole = 'dometic';
 
     roleBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -591,6 +917,10 @@ function setupLoginLogic() {
             selectedRole = btn.dataset.targetRole;
         });
     });
+
+    // Resolve initial role from active button
+    const activeBtn = overlay.querySelector('.login-role-btn.active');
+    if (activeBtn) selectedRole = activeBtn.dataset.targetRole;
 
     const loginForm = document.getElementById('loginForm');
     if (!loginForm) return;
@@ -603,16 +933,26 @@ function setupLoginLogic() {
         const errEl    = document.getElementById('loginError');
 
         if (passcode === correct) {
-            state.role = selectedRole;
+            state.role          = selectedRole;
+            state.authenticated = true;
             overlay.classList.remove('active');
             document.getElementById('passcode').value = '';
             errEl.classList.add('hidden');
+            localStorage.setItem('gma_last_auth', Date.now().toString());
             persistState();
             renderAll();
+            showToast(`👋 Welcome, ${selectedRole === 'dometic' ? 'Dometic Admin' : 'ZunPower'}`);
         } else {
             errEl.classList.remove('hidden');
             document.getElementById('passcode').value = '';
             document.getElementById('passcode').focus();
+        }
+    });
+
+    // PIN keyboard — auto-submit on 4 digits
+    document.getElementById('passcode').addEventListener('input', function() {
+        if (this.value.length === 4) {
+            setTimeout(() => loginForm.dispatchEvent(new Event('submit')), 100);
         }
     });
 }

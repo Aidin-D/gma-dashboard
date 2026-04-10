@@ -134,21 +134,23 @@ const CloudService = {
     /** Convert the in-memory PO object to a flat DB row */
     _toRow(po) {
         return {
-            id:              po.id,
-            item_number:     po.item_number || '',
-            description:     po.description || po.desc || '',
-            qty:             po.qty          || 0,
-            outstanding_qty: po.outstanding_qty ?? po.qty ?? 0,
-            unit_cost:       po.unit_cost    || 0,
-            currency:        po.currency     || 'USD',
-            status:          po.status       || 'open',
-            eta:             po.eta          || null,
-            order_date:      po.order_date   || null,
-            ship_date:       po.ship_date    || null,
-            location:        po.location     || 'OTHERS',
-            reference:       po.reference    || '',
-            value:           (po.qty || 0) * (po.unit_cost || 0),
-            history:         po.history      || []
+            id:               po.id,
+            item_number:      po.item_number      || '',
+            description:      po.description      || po.desc || '',
+            qty:              po.qty               || 0,
+            outstanding_qty:  po.outstanding_qty  ?? po.qty ?? 0,
+            unit_cost:        po.unit_cost         || 0,
+            currency:         po.currency          || 'USD',
+            status:           po.status            || 'open',
+            eta:              po.eta               || null,
+            order_date:       po.order_date        || null,
+            ship_date:        po.ship_date         || null,
+            location:         po.location          || 'OTHERS',
+            reference:        po.reference         || '',
+            value:            (po.qty || 0) * (po.unit_cost || 0),
+            priority:         po.priority          || 'normal',
+            special_requests: po.special_requests  || [],
+            history:          po.history           || []
         };
     }
 };
