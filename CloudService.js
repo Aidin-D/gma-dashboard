@@ -4,9 +4,18 @@
  * Provides high-performance, real-time data sync for Dometic & ZunPower.
  *
  * Table: 'purchase_orders'
- * Required columns: id (text PK), item_number, description, qty, outstanding_qty,
+ * Core columns: id (text PK), item_number, description, qty, outstanding_qty,
  *   unit_cost, currency, status, eta, order_date, ship_date, location,
  *   reference, value, history (jsonb)
+ *
+ * Extended columns (add via ALTER TABLE — see migration below):
+ *   priority         text  DEFAULT 'normal'
+ *   special_requests jsonb DEFAULT '[]'
+ *
+ * -- SQL Migration (run once in Supabase SQL Editor):
+ * ALTER TABLE purchase_orders
+ *   ADD COLUMN IF NOT EXISTS priority         text    DEFAULT 'normal',
+ *   ADD COLUMN IF NOT EXISTS special_requests jsonb   DEFAULT '[]';
  */
 
 const CloudService = {
@@ -14,6 +23,23 @@ const CloudService = {
     supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhldHRka3pudWplYWJtY2trdm5pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NzMyNjksImV4cCI6MjA5MTE0OTI2OX0.byriabl_RZcELa6gnla6j5LZT7r6DFxkm2fW6e9QycQ',
     isMock: false,
     _table: 'purchase_orders',
+
+    /**
+     * Core columns guaranteed to exist in the DB schema.
+     * Extended columns (priority, special_requests) are tried first;
+     * if Supabase returns a column-not-found error we fall back to CORE_COLUMNS only.
+     */
+    CORE_COLUMNS: new Set([
+        'id', 'item_number', 'description', 'qty', 'outstanding_qty',
+        'unit_cost', 'currency', 'status', 'eta', 'order_date',
+        'ship_date', 'location', 'reference', 'value', 'history'
+    ]),
+
+    /**
+     * Tracks whether the extended columns have been confirmed available.
+     * null = not yet tested, true = available, false = not available
+     */
+    _extendedColumnsAvailable: null,
 
     // ---- Helpers ----
 
@@ -42,6 +68,23 @@ const CloudService = {
         if (resp.status === 204) return true;
 
         return resp.json();
+    },
+
+    /** Returns true if the error is a Supabase "column not found" error */
+    _isMissingColumnError(err) {
+        return err && err.message && (
+            err.message.includes('PGRST204') ||
+            err.message.includes('42703') ||
+            err.message.includes('column') && err.message.includes('does not exist') ||
+            err.message.includes('could not find') && err.message.includes('column')
+        );
+    },
+
+    /** Filter an update payload to only include CORE_COLUMNS */
+    _stripExtendedColumns(updates) {
+        return Object.fromEntries(
+            Object.entries(updates).filter(([k]) => this.CORE_COLUMNS.has(k))
+        );
     },
 
     // ---- Init ----
@@ -81,34 +124,70 @@ const CloudService = {
 
     /**
      * Insert a new PO row.
-     * Maps app state fields → DB columns.
+     * Tries with all columns; falls back to core-only if extended columns missing.
      */
     async createPO(po) {
         if (this.isMock) return po;
 
-        const row = this._toRow(po);
         const url = `${this.supabaseUrl}/rest/v1/${this._table}`;
-        return this._request(url, {
-            method: 'POST',
-            body: JSON.stringify(row),
-            headers: { 'Prefer': 'return=representation' }
-        });
+        const opts = { method: 'POST', headers: { 'Prefer': 'return=representation' } };
+
+        // Try with full row (includes priority + special_requests if available)
+        if (this._extendedColumnsAvailable !== false) {
+            try {
+                const row = this._toRow(po);
+                const result = await this._request(url, { ...opts, body: JSON.stringify(row) });
+                this._extendedColumnsAvailable = true;
+                return result;
+            } catch (err) {
+                if (this._isMissingColumnError(err)) {
+                    console.warn('[CloudService] Extended columns not in DB yet. Using core columns only. Run the SQL migration to enable full feature persistence.');
+                    this._extendedColumnsAvailable = false;
+                } else {
+                    throw err;
+                }
+            }
+        }
+
+        // Fallback: core columns only
+        const coreRow = this._stripExtendedColumns(this._toRow(po));
+        return this._request(url, { ...opts, body: JSON.stringify(coreRow) });
     },
 
     /**
      * Patch specific fields on an existing PO.
-     * @param {string} poId  — the PO id (primary key)
+     * Tries with all supplied fields first; if Supabase rejects due to missing
+     * extended columns, automatically retries with only core columns.
+     *
+     * @param {string} poId    — the PO id (primary key)
      * @param {object} updates — partial field map
      */
     async updatePO(poId, updates) {
         if (this.isMock) return true;
 
         const url = `${this.supabaseUrl}/rest/v1/${this._table}?id=eq.${encodeURIComponent(poId)}`;
-        return this._request(url, {
-            method: 'PATCH',
-            body: JSON.stringify(updates),
-            headers: { 'Prefer': 'return=minimal' }
-        });
+        const opts = { method: 'PATCH', headers: { 'Prefer': 'return=minimal' } };
+
+        // If we already know extended columns are missing, strip them immediately
+        if (this._extendedColumnsAvailable === false) {
+            const safeUpdates = this._stripExtendedColumns(updates);
+            return this._request(url, { ...opts, body: JSON.stringify(safeUpdates) });
+        }
+
+        // Try full update
+        try {
+            const result = await this._request(url, { ...opts, body: JSON.stringify(updates) });
+            this._extendedColumnsAvailable = true;
+            return result;
+        } catch (err) {
+            if (this._isMissingColumnError(err)) {
+                console.warn('[CloudService] Retrying PATCH without extended columns. Run the SQL migration to persist priority/special_requests in Supabase.');
+                this._extendedColumnsAvailable = false;
+                const safeUpdates = this._stripExtendedColumns(updates);
+                return this._request(url, { ...opts, body: JSON.stringify(safeUpdates) });
+            }
+            throw err;
+        }
     },
 
     /**
@@ -123,7 +202,6 @@ const CloudService = {
 
     /**
      * Upsert the full history JSON for a PO.
-     * Called after logHistory so audit trail stays in sync.
      */
     async updateHistory(poId, history) {
         return this.updatePO(poId, { history });
@@ -131,7 +209,7 @@ const CloudService = {
 
     // ---- Field Mapping ----
 
-    /** Convert the in-memory PO object to a flat DB row */
+    /** Convert the in-memory PO object to a flat DB row (all columns) */
     _toRow(po) {
         return {
             id:               po.id,
