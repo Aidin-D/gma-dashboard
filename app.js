@@ -1,4 +1,4 @@
-// GMA Live Dashboard — App Logic v3.0
+// GMA Live Dashboard — App Logic v3.5
 // Priority System · Special Requests · Login Gate · Supabase Sync
 
 // ---- Priority Levels (order = sort weight) ----
