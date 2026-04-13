@@ -176,18 +176,28 @@ function sortPOs(list, by) {
         switch (by) {
             case 'priority':
                 return (PRIORITY_WEIGHT[a.priority] ?? 2) - (PRIORITY_WEIGHT[b.priority] ?? 2);
+            case 'priority_desc':
+                return (PRIORITY_WEIGHT[b.priority] ?? 2) - (PRIORITY_WEIGHT[a.priority] ?? 2);
             case 'eta':
                 return (a.eta || '9999') < (b.eta || '9999') ? -1 : 1;
             case 'eta_desc':
                 return (a.eta || '0000') > (b.eta || '0000') ? -1 : 1;
             case 'qty':
                 return (b.qty || 0) - (a.qty || 0);
+            case 'qty_asc':
+                return (a.qty || 0) - (b.qty || 0);
             case 'status': {
                 const s = { delayed: 0, production: 1, open: 2, shipped: 3 };
                 return (s[a.status] ?? 99) - (s[b.status] ?? 99);
             }
+            case 'status_desc': {
+                const s = { delayed: 0, production: 1, open: 2, shipped: 3 };
+                return (s[b.status] ?? 99) - (s[a.status] ?? 99);
+            }
             case 'po_number':
                 return (a.id || '').localeCompare(b.id || '');
+            case 'po_number_desc':
+                return (b.id || '').localeCompare(a.id || '');
             default:
                 return 0;
         }
