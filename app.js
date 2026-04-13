@@ -330,9 +330,15 @@ function renderPOTable(data) {
                             <p class="detail-label">Description</p>
                             <p class="detail-value">${po.description || po.desc || '—'}</p>
                         </div>
-                        <div style="grid-column:1/-1">
-                            <p class="detail-label">Notes / Reference</p>
-                            <p class="detail-value" style="font-style:italic">${po.reference || 'No additional comments.'}</p>
+                        <div style="grid-column:1/-1; display:flex; gap:16px; flex-wrap:wrap;">
+                            <div style="flex:1; min-width: 250px;">
+                                <p class="detail-label">Dometic Remarks</p>
+                                <p class="detail-value" style="font-style:italic; white-space:pre-wrap;">${po.dometic_remarks || po.reference || '—'}</p>
+                            </div>
+                            <div style="flex:1; min-width: 250px;">
+                                <p class="detail-label">ZunPower Remarks</p>
+                                <p class="detail-value" style="font-style:italic; white-space:pre-wrap;">${po.zunpower_remarks || '—'}</p>
+                            </div>
                         </div>
                         ${srPanel}
                         ${zunPowerPanel}
@@ -373,7 +379,8 @@ function fillForm(po) {
     f.querySelector('[name="eta"]').value            = po.eta || '';
     f.querySelector('[name="ship_date"]').value      = po.ship_date || '';
     f.querySelector('[name="status"]').value         = po.status || 'open';
-    f.querySelector('[name="reference"]').value      = po.reference || '';
+    f.querySelector('[name="dometic_remarks"]').value = po.dometic_remarks || po.reference || '';
+    f.querySelector('[name="zunpower_remarks"]').value= po.zunpower_remarks || '';
     f.querySelector('[name="priority"]').value       = po.priority || 'normal';
     setPriorityUI(po.priority || 'normal');
 }
@@ -421,12 +428,18 @@ function openDrawer(mode = 'create') {
         statusGroup.classList.remove('hidden');
         specialBtn.classList.remove('hidden');
         // Role restrictions — ZunPower can only update logistics/status fields
-        const restricted = ['po_number', 'sku', 'qty', 'order_date', 'description'];
+        const restricted = ['po_number', 'sku', 'qty', 'order_date', 'description', 'dometic_remarks'];
         const isZP = state.role === 'zunpower';
         restricted.forEach(fname => {
             const el = poForm.querySelector(`[name="${fname}"]`);
             if (el) { el.readOnly = isZP; el.style.background = isZP ? 'var(--slate-50)' : 'white'; }
         });
+        
+        const zpRemEl = poForm.querySelector(`[name="zunpower_remarks"]`);
+        if (zpRemEl) {
+            zpRemEl.readOnly = !isZP;
+            zpRemEl.style.background = !isZP ? 'var(--slate-50)' : 'white';
+        }
 
         deleteBtn.classList.toggle('hidden', state.role !== 'dometic');
     } else {
@@ -440,6 +453,12 @@ function openDrawer(mode = 'create') {
         editingPOId = null;
         setPriorityUI('normal');
         poForm.querySelector('[name="priority"]').value = 'normal';
+        
+        const zpRemEl = poForm.querySelector(`[name="zunpower_remarks"]`);
+        if (zpRemEl) {
+            zpRemEl.readOnly = true;
+            zpRemEl.style.background = 'var(--slate-50)';
+        }
     }
 
     sideDrawer.classList.add('open');
@@ -721,7 +740,14 @@ function setupEventListeners() {
             po.description   = fd.get('description') || po.description || po.desc;
             po.desc          = po.description;
             po.qty           = parseInt(fd.get('qty'))         || po.qty;
-            po.reference     = fd.get('reference') ?? po.reference;
+            
+            if (state.role === 'dometic') {
+                po.dometic_remarks = fd.get('dometic_remarks') ?? po.dometic_remarks;
+                po.reference = po.dometic_remarks; // maintain legacy compat
+            } else if (state.role === 'zunpower') {
+                po.zunpower_remarks = fd.get('zunpower_remarks') ?? po.zunpower_remarks;
+            }
+            
             po.eta           = fd.get('eta')        || po.eta;
             po.order_date    = fd.get('order_date') || po.order_date;
             po.location      = fd.get('location')   || po.location;
@@ -737,6 +763,8 @@ function setupEventListeners() {
                 unit_cost:       po.unit_cost,
                 currency:        po.currency,
                 reference:       po.reference,
+                dometic_remarks: po.dometic_remarks,
+                zunpower_remarks:po.zunpower_remarks,
                 eta:             po.eta,
                 ship_date:       po.ship_date,
                 order_date:      po.order_date,
@@ -757,7 +785,9 @@ function setupEventListeners() {
                 desc:            fd.get('description'),
                 qty:             parseInt(fd.get('qty'))            || 0,
                 outstanding_qty: parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
-                reference:       fd.get('reference') || '',
+                reference:       fd.get('dometic_remarks') || '',
+                dometic_remarks: fd.get('dometic_remarks') || '',
+                zunpower_remarks: '',
                 status:          'open',
                 priority:        fd.get('priority') || 'normal',
                 eta:             fd.get('eta')        || '',

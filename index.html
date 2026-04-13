@@ -226,7 +226,16 @@
                     </div>
                     <div class="form-group form-full">
                         <label>Collaboration / Status Updates Hub</label>
-                        <textarea name="reference" class="form-input" rows="4" placeholder="ZunPower &amp; Dometic updates: Confirmations, shipment delays, feedback, etc..."></textarea>
+                        <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                            <div style="flex:1; min-width: 250px;">
+                                <label style="font-size:0.8rem; color:#64748b;">Dometic Remarks</label>
+                                <textarea name="dometic_remarks" class="form-input" rows="4" placeholder="Dometic updates..."></textarea>
+                            </div>
+                            <div style="flex:1; min-width: 250px;">
+                                <label style="font-size:0.8rem; color:#64748b;">ZunPower Remarks</label>
+                                <textarea name="zunpower_remarks" class="form-input" rows="4" placeholder="ZunPower updates..."></textarea>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group form-full hidden" id="statusFieldGroup">
                         <label>Status</label>
