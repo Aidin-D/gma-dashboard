@@ -186,6 +186,8 @@ function sortPOs(list, by) {
                 const s = { delayed: 0, production: 1, open: 2, shipped: 3 };
                 return (s[a.status] ?? 99) - (s[b.status] ?? 99);
             }
+            case 'po_number':
+                return (a.id || '').localeCompare(b.id || '');
             default:
                 return 0;
         }
