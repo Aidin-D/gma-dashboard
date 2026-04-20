@@ -198,6 +198,14 @@ function sortPOs(list, by) {
                 return (a.id || '').localeCompare(b.id || '');
             case 'po_number_desc':
                 return (b.id || '').localeCompare(a.id || '');
+            case 'recent_updates': {
+                const getLatestUpdate = po => {
+                    const latest = (po.history || []).slice(-1)[0];
+                    if (!latest) return 0;
+                    return new Date(latest.date).getTime() || 0;
+                };
+                return getLatestUpdate(b) - getLatestUpdate(a);
+            }
             default:
                 return 0;
         }
@@ -333,7 +341,7 @@ function renderPOTable(data) {
                         <div style="grid-column:1/-1; display:flex; gap:16px; flex-wrap:wrap;">
                             <div style="flex:1; min-width: 250px;">
                                 <p class="detail-label">Dometic Remarks</p>
-                                <p class="detail-value" style="font-style:italic; white-space:pre-wrap;">${po.dometic_remarks || po.reference || '—'}</p>
+                                <p class="detail-value" style="font-style:italic; white-space:pre-wrap;">${po.dometic_remarks !== undefined ? po.dometic_remarks : (po.reference && po.reference.includes('|||ZP:') ? po.reference.split('|||ZP:')[0] : po.reference) || '—'}</p>
                             </div>
                             <div style="flex:1; min-width: 250px;">
                                 <p class="detail-label">ZunPower Remarks</p>
@@ -379,7 +387,11 @@ function fillForm(po) {
     f.querySelector('[name="eta"]').value            = po.eta || '';
     f.querySelector('[name="ship_date"]').value      = po.ship_date || '';
     f.querySelector('[name="status"]').value         = po.status || 'open';
-    f.querySelector('[name="dometic_remarks"]').value = po.dometic_remarks || po.reference || '';
+    let dRem = po.dometic_remarks;
+    if (dRem === undefined) {
+        dRem = (typeof po.reference === 'string' && po.reference.includes('|||ZP:')) ? po.reference.split('|||ZP:')[0] : (po.reference || '');
+    }
+    f.querySelector('[name="dometic_remarks"]').value = dRem || '';
     f.querySelector('[name="zunpower_remarks"]').value= po.zunpower_remarks || '';
     f.querySelector('[name="priority"]').value       = po.priority || 'normal';
     setPriorityUI(po.priority || 'normal');
@@ -743,10 +755,10 @@ function setupEventListeners() {
             
             if (state.role === 'dometic') {
                 po.dometic_remarks = fd.get('dometic_remarks') ?? po.dometic_remarks;
-                po.reference = po.dometic_remarks; // maintain legacy compat
             } else if (state.role === 'zunpower') {
                 po.zunpower_remarks = fd.get('zunpower_remarks') ?? po.zunpower_remarks;
             }
+            po.reference = `${po.dometic_remarks || ''}|||ZP:${po.zunpower_remarks || ''}`;
             
             po.eta           = fd.get('eta')        || po.eta;
             po.order_date    = fd.get('order_date') || po.order_date;
@@ -785,7 +797,7 @@ function setupEventListeners() {
                 desc:            fd.get('description'),
                 qty:             parseInt(fd.get('qty'))            || 0,
                 outstanding_qty: parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
-                reference:       fd.get('dometic_remarks') || '',
+                reference:       `${fd.get('dometic_remarks') || ''}|||ZP:`,
                 dometic_remarks: fd.get('dometic_remarks') || '',
                 zunpower_remarks: '',
                 status:          'open',
@@ -864,11 +876,22 @@ async function syncWithCloud() {
 
         if (Array.isArray(cloudPOs) && cloudPOs.length > 0) {
             // Ensure special_requests field exists on all POs
-            state.pos = cloudPOs.map(po => ({
-                ...po,
-                priority:         po.priority         || 'normal',
-                special_requests: po.special_requests || []
-            }));
+            state.pos = cloudPOs.map(po => {
+                let dRem = po.reference || '';
+                let zRem = '';
+                const idx = dRem.indexOf('|||ZP:');
+                if (idx !== -1) {
+                    zRem = dRem.substring(idx + 6);
+                    dRem = dRem.substring(0, idx);
+                }
+                return {
+                    ...po,
+                    priority:         po.priority         || 'normal',
+                    special_requests: po.special_requests || [],
+                    dometic_remarks:  dRem,
+                    zunpower_remarks: zRem
+                };
+            });
             persistState();
             console.log(`[Sync] Loaded ${cloudPOs.length} POs from Supabase.`);
         } else if (!CloudService.isMock && state.pos.length > 0) {
