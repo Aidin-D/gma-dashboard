@@ -773,12 +773,14 @@ function setupEventListeners() {
                 if (newDomRem !== (po.dometic_remarks || '')) {
                     po.dometic_remarks = newDomRem;
                     cloudUpdates.dometic_remarks = newDomRem;
+                    changes.push(`Dometic Remarks updated`);
                 }
             } else if (state.role === 'zunpower') {
                 const newZpRem = fd.get('zunpower_remarks') || '';
                 if (newZpRem !== (po.zunpower_remarks || '')) {
                     po.zunpower_remarks = newZpRem;
                     cloudUpdates.zunpower_remarks = newZpRem;
+                    changes.push(`ZunPower Remarks updated`);
                 }
             }
             
