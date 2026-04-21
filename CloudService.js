@@ -37,7 +37,8 @@ const CloudService = {
     CORE_COLUMNS: new Set([
         'id', 'item_number', 'description', 'qty', 'outstanding_qty',
         'unit_cost', 'currency', 'status', 'eta', 'order_date',
-        'ship_date', 'location', 'reference', 'value', 'history'
+        'ship_date', 'location', 'reference', 'value', 'history',
+        'dometic_remarks', 'zunpower_remarks'
     ]),
 
     /**

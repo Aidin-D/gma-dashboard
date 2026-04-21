@@ -888,19 +888,27 @@ async function syncWithCloud() {
         if (Array.isArray(cloudPOs) && cloudPOs.length > 0) {
             // Ensure special_requests field exists on all POs
             state.pos = cloudPOs.map(po => {
-                let dRem = po.reference || '';
-                let zRem = '';
-                const idx = dRem.indexOf('|||ZP:');
-                if (idx !== -1) {
-                    zRem = dRem.substring(idx + 6);
-                    dRem = dRem.substring(0, idx);
+                let dRem = po.dometic_remarks;
+                let zRem = po.zunpower_remarks;
+                
+                if (dRem === undefined || dRem === null) {
+                    let ref = po.reference || '';
+                    const idx = ref.indexOf('|||ZP:');
+                    if (idx !== -1) {
+                        zRem = ref.substring(idx + 6);
+                        dRem = ref.substring(0, idx);
+                    } else {
+                        dRem = ref;
+                        zRem = '';
+                    }
                 }
+
                 return {
                     ...po,
                     priority:         po.priority         || 'normal',
                     special_requests: po.special_requests || [],
-                    dometic_remarks:  dRem,
-                    zunpower_remarks: zRem
+                    dometic_remarks:  dRem || '',
+                    zunpower_remarks: zRem || ''
                 };
             });
             persistState();
