@@ -291,6 +291,12 @@
                     </div>
                 </div>
             </section>
+
+            <section id="shipmentLinesSection">
+                <h4>Shipment Lines <span style="font-weight:400;color:var(--slate-400);text-transform:none;letter-spacing:0;font-size:0.65rem">&mdash; split shipments with different dates &amp; quantities</span></h4>
+                <div id="shipmentLinesContainer"></div>
+                <button type="button" id="addShipmentLineBtn" class="btn-add-line" onclick="addShipmentLine()">+ Add Shipment Line</button>
+            </section>
         </form>
         <div class="drawer-footer mobile-stack">
             <button type="button" id="deletePOBtn" class="btn-danger hidden" onclick="deletePO()">Delete PO</button>

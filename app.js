@@ -212,6 +212,52 @@ function sortPOs(list, by) {
     });
 }
 
+// ---- Split-shipment helpers ----
+
+/** Compute aggregate totals from shipment lines (fallback to top-level fields if no lines) */
+function computeTotals(po) {
+    const lines = po.shipment_lines || [];
+    if (lines.length === 0) {
+        return { qty: po.qty || 0, outstanding_qty: po.outstanding_qty || 0, eta: po.eta, ship_date: po.ship_date };
+    }
+    const qty          = lines.reduce((s, l) => s + (parseInt(l.qty) || 0), 0);
+    const outstanding_qty = lines.reduce((s, l) => s + (parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0)), 0);
+    const etas         = lines.map(l => l.eta).filter(Boolean).sort();
+    const ships        = lines.map(l => l.ship_date).filter(Boolean).sort();
+    return { qty, outstanding_qty, eta: etas[0] || po.eta, ship_date: ships[0] || po.ship_date };
+}
+
+/** Read-only mini-table of shipment lines shown in the expanded row */
+function renderShipmentLinesPanel(po) {
+    const lines = po.shipment_lines || [];
+    if (lines.length === 0) return '';
+    const totalQty = lines.reduce((s, l) => s + (parseInt(l.qty) || 0), 0);
+    const totalOut = lines.reduce((s, l) => s + (parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0)), 0);
+    return `
+        <div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px">
+            <p class="detail-label" style="margin-bottom:10px;color:#0369a1">Shipment Lines &nbsp;<span style="font-weight:500;text-transform:none;letter-spacing:0;font-size:0.75rem;color:#64748b">${lines.length} line${lines.length > 1 ? 's' : ''}</span></p>
+            <table class="shipment-lines-table">
+                <thead><tr><th>#</th><th>Qty</th><th>Outstanding</th><th>Ship Date</th><th>ETA</th></tr></thead>
+                <tbody>
+                    ${lines.map((l, i) => `
+                        <tr>
+                            <td><span class="lines-badge" style="margin:0">L${i + 1}</span></td>
+                            <td>${l.qty || 0}</td>
+                            <td style="font-weight:700;color:${(parseInt(l.outstanding_qty) ?? parseInt(l.qty) ?? 0) > 0 ? '#ea580c' : '#059669'}">${l.outstanding_qty ?? l.qty ?? 0}</td>
+                            <td>${l.ship_date || '—'}</td>
+                            <td>${l.eta || '—'}</td>
+                        </tr>`).join('')}
+                </tbody>
+                <tfoot><tr>
+                    <td>Total</td>
+                    <td>${totalQty}</td>
+                    <td style="font-weight:700;color:${totalOut > 0 ? '#ea580c' : '#059669'}">${totalOut}</td>
+                    <td colspan="2"></td>
+                </tr></tfoot>
+            </table>
+        </div>`;
+}
+
 function renderPOTable(data) {
     const isZunPower = state.role === 'zunpower';
 
@@ -227,11 +273,13 @@ function renderPOTable(data) {
 
     poTableBody.innerHTML = data.map(po => {
         const pulseClass    = po.status === 'delayed' ? ' pulse' : '';
-        const etaStyle      = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
         const pMeta         = PRIORITY_LABELS[po.priority || 'normal'];
         const hasSpecialReq = (po.special_requests || []).some(r => r.status === 'open');
         const isClosed      = po.status === 'closed';
         const closedRowClass = isClosed ? ' po-row-closed' : '';
+        const totals        = computeTotals(po);
+        const hasLines      = (po.shipment_lines || []).length > 0;
+        const etaStyle      = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
 
         // Last update — most recent history entry shown inline
         const lastEntry  = (po.history || []).slice(-1)[0];
@@ -310,11 +358,12 @@ function renderPOTable(data) {
                 <td style="font-weight:700;color:#1e293b">${po.id}</td>
                 <td style="font-weight:600">${po.item_number || '—'}</td>
                 <td><span class="status-pill status-${po.status}${pulseClass}">${po.status}</span></td>
-                <td class="hidden-sm" style="${etaStyle}">${po.eta || 'TBD'}</td>
+                <td class="hidden-sm" style="${etaStyle}">${totals.eta || 'TBD'}${hasLines ? '<span class="lines-badge">split</span>' : ''}</td>
                 <td class="hidden-md">
-                    <span style="font-weight:600">${po.qty}</span>
+                    <span style="font-weight:600">${totals.qty}</span>
                     <span style="color:#94a3b8;font-size:0.75rem"> / </span>
-                    <span style="font-weight:700;color:${po.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${po.outstanding_qty}</span>
+                    <span style="font-weight:700;color:${totals.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${totals.outstanding_qty}</span>
+                    ${hasLines ? `<span class="lines-badge">${(po.shipment_lines||[]).length}L</span>` : ''}
                 </td>
                 <td class="hidden-md last-update-cell">${lastUpdate}</td>
                 <td style="text-align:right">${actionBtn}</td>
@@ -350,6 +399,7 @@ function renderPOTable(data) {
                                 <p class="detail-value" style="font-style:italic; white-space:pre-wrap;">${po.zunpower_remarks || '—'}</p>
                             </div>
                         </div>
+                        ${renderShipmentLinesPanel(po)}
                         ${srPanel}
                         ${zunPowerPanel}
                         ${historyPanel}
@@ -376,6 +426,7 @@ window.toggleRow = function(id) {
 
 // ---- Drawer ----
 let editingPOId = null;
+let editingLines = []; // working copy of shipment lines in drawer
 
 function fillForm(po) {
     const f = poForm;
@@ -397,6 +448,9 @@ function fillForm(po) {
     f.querySelector('[name="zunpower_remarks"]').value= po.zunpower_remarks || '';
     f.querySelector('[name="priority"]').value       = po.priority || 'normal';
     setPriorityUI(po.priority || 'normal');
+    // Init shipment lines
+    editingLines = (po.shipment_lines || []).map(l => ({ ...l }));
+    renderDrawerLines();
 }
 
 function setPriorityUI(priority) {
@@ -404,6 +458,66 @@ function setPriorityUI(priority) {
         btn.classList.toggle('active', btn.getAttribute('data-priority-val') === priority);
     });
 }
+
+/** Renders the editingLines array into the drawer's shipment lines container */
+function renderDrawerLines() {
+    const container = document.getElementById('shipmentLinesContainer');
+    const addBtn    = document.getElementById('addShipmentLineBtn');
+    if (!container) return;
+    const isZP = state.role === 'zunpower';
+    if (addBtn) addBtn.classList.toggle('hidden', isZP);
+
+    if (editingLines.length === 0) {
+        container.innerHTML = `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines — click "+ Add Shipment Line" to split this PO across multiple deliveries.</p>`;
+        if (isZP) container.innerHTML = `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines on this PO.</p>`;
+        return;
+    }
+
+    container.innerHTML = editingLines.map((l, i) => {
+        const id = l.id;
+        if (isZP) {
+            return `
+            <div class="shipment-line-row">
+                <div class="line-num">L${i + 1}</div>
+                <div class="line-field"><label>Qty</label><div class="line-readonly">${l.qty || 0}</div></div>
+                <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${l.outstanding_qty ?? l.qty ?? 0}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+                <div class="line-field"><label>Ship Date</label><div class="line-readonly">${l.ship_date || '—'}</div></div>
+                <div class="line-field"><label>ETA</label><div class="line-readonly">${l.eta || '—'}</div></div>
+            </div>`;
+        }
+        return `
+        <div class="shipment-line-row">
+            <div class="line-num">L${i + 1}</div>
+            <div class="line-field"><label>Qty</label><input type="number" class="form-input" min="0" value="${l.qty || ''}" oninput="updateEditingLine('${id}','qty',this.value)"></div>
+            <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${l.outstanding_qty ?? l.qty ?? ''}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+            <div class="line-field"><label>Ship Date</label><input type="date" class="form-input" value="${l.ship_date || ''}" oninput="updateEditingLine('${id}','ship_date',this.value)"></div>
+            <div class="line-field"><label>ETA</label><input type="date" class="form-input" value="${l.eta || ''}" oninput="updateEditingLine('${id}','eta',this.value)"></div>
+            <button type="button" class="btn-remove-line" onclick="removeShipmentLine('${id}')" title="Remove line">&#x2715;</button>
+        </div>`;
+    }).join('');
+}
+
+window.addShipmentLine = function() {
+    if (state.role !== 'dometic') return;
+    const newLine = {
+        id: 'line-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        qty: 0, outstanding_qty: 0, ship_date: '', eta: ''
+    };
+    editingLines.push(newLine);
+    renderDrawerLines();
+};
+
+window.removeShipmentLine = function(lineId) {
+    editingLines = editingLines.filter(l => l.id !== lineId);
+    renderDrawerLines();
+};
+
+window.updateEditingLine = function(lineId, field, value) {
+    const line = editingLines.find(l => l.id === lineId);
+    if (!line) return;
+    line[field] = field === 'qty' || field === 'outstanding_qty' ? (parseInt(value) || 0) : value;
+};
+
 
 function updateUIForRole() {
     const isZunPower = state.role === 'zunpower';
@@ -463,9 +577,9 @@ function openDrawer(mode = 'create') {
             const po = state.pos.find(p => p.id === editingPOId);
             const canClose = state.role === 'dometic' && po && po.status !== 'closed';
             closePOBtn.classList.toggle('hidden', !canClose);
-            closePOBtn.disabled = !po || po.outstanding_qty > 0;
-            closePOBtn.title = po && po.outstanding_qty > 0
-                ? `Cannot close — ${po.outstanding_qty} units still outstanding`
+            closePOBtn.disabled = !po || computeTotals(po).outstanding_qty > 0;
+            closePOBtn.title = computeTotals(po).outstanding_qty > 0
+                ? `Cannot close — ${computeTotals(po).outstanding_qty} units still outstanding`
                 : 'Close this PO (outstanding qty is 0)';
         }
     } else {
@@ -505,6 +619,7 @@ function closeDrawer() {
     const closePOBtn = document.getElementById('closePOBtn');
     if (closePOBtn) closePOBtn.classList.add('hidden');
     editingPOId = null;
+    editingLines = [];
     setPriorityUI('normal');
 }
 
@@ -812,6 +927,27 @@ function setupEventListeners() {
             const newSku = fd.get('sku');
             if (newSku && newSku !== po.item_number) { po.item_number = newSku; cloudUpdates.item_number = newSku; }
 
+            // Shipment lines (Dometic adds/manages, ZunPower updates outstanding per line)
+            const hasEditLines = editingLines.length > 0;
+            if (hasEditLines) {
+                const cleanedLines = editingLines.map(l => ({
+                    id: l.id,
+                    qty:             parseInt(l.qty)             || 0,
+                    outstanding_qty: parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0),
+                    ship_date:       l.ship_date || '',
+                    eta:             l.eta       || ''
+                }));
+                po.shipment_lines = cleanedLines;
+                cloudUpdates.shipment_lines = cleanedLines;
+                // Sync top-level aggregates from lines
+                const lt = computeTotals(po);
+                po.qty = lt.qty;             cloudUpdates.qty             = lt.qty;
+                po.outstanding_qty = lt.outstanding_qty; cloudUpdates.outstanding_qty = lt.outstanding_qty;
+                if (lt.eta)       { po.eta       = lt.eta;       cloudUpdates.eta       = lt.eta; }
+                if (lt.ship_date) { po.ship_date = lt.ship_date; cloudUpdates.ship_date = lt.ship_date; }
+                changes.push('Shipment lines updated');
+            }
+
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
             cloudUpdates.history = po.history;
 
@@ -826,7 +962,7 @@ function setupEventListeners() {
                 desc:            fd.get('description'),
                 qty:             parseInt(fd.get('qty'))            || 0,
                 outstanding_qty: parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
-                reference:       '',
+    shipment_lines:   [],
                 dometic_remarks: fd.get('dometic_remarks') || '',
                 zunpower_remarks: '',
                 status:          'open',
@@ -926,7 +1062,8 @@ async function syncWithCloud() {
                     priority:         po.priority         || 'normal',
                     special_requests: po.special_requests || [],
                     dometic_remarks:  dRem || '',
-                    zunpower_remarks: zRem || ''
+                    zunpower_remarks: zRem || '',
+                    shipment_lines:   po.shipment_lines || []
                 };
             });
             persistState();
@@ -1002,8 +1139,9 @@ window.closePO = async function() {
     const po = state.pos.find(p => p.id === editingPOId);
     if (!po) return;
 
-    if (po.outstanding_qty > 0) {
-        showToast(`⚠️ Cannot close — ${po.outstanding_qty} units still outstanding`, 'warning');
+    const totalOutstanding = computeTotals(po).outstanding_qty;
+    if (totalOutstanding > 0) {
+        showToast(`⚠️ Cannot close — ${totalOutstanding} units still outstanding`, 'warning');
         return;
     }
 

@@ -38,7 +38,7 @@ const CloudService = {
         'id', 'item_number', 'description', 'qty', 'outstanding_qty',
         'unit_cost', 'currency', 'status', 'eta', 'order_date',
         'ship_date', 'location', 'reference', 'value', 'history',
-        'dometic_remarks', 'zunpower_remarks'
+        'dometic_remarks', 'zunpower_remarks', 'shipment_lines'
     ]),
 
     /**
@@ -236,6 +236,7 @@ const CloudService = {
             special_requests: po.special_requests  || [],
             dometic_remarks:  po.dometic_remarks   || '',
             zunpower_remarks: po.zunpower_remarks  || '',
+            shipment_lines:   po.shipment_lines    || [],
             history:          po.history           || []
         };
     }

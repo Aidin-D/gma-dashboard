@@ -517,6 +517,156 @@ select.form-input {
     100% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0); }
 }
 
+/* ---- Split / Lines Badge ---- */
+.lines-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: #e0f2fe;
+    color: #0369a1;
+    margin-left: 5px;
+    vertical-align: middle;
+}
+
+/* ---- Shipment Lines mini-table (expanded detail row) ---- */
+.shipment-lines-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    margin-top: 6px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--slate-200);
+}
+
+.shipment-lines-table thead th {
+    background: #f0f9ff;
+    color: #0369a1;
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid #bae6fd;
+}
+
+.shipment-lines-table tbody td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--slate-100);
+    color: var(--slate-700);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.shipment-lines-table tbody tr:last-child td { border-bottom: none; }
+
+.shipment-lines-table tfoot td {
+    padding: 8px 12px;
+    font-size: 0.72rem;
+    color: var(--slate-500);
+    font-weight: 700;
+    border-top: 1px solid var(--slate-200);
+    background: var(--slate-50);
+}
+
+/* ---- Shipment Line Rows (drawer edit) ---- */
+.shipment-line-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--slate-200);
+    border-radius: 10px;
+    background: var(--slate-50);
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.line-num {
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: #0369a1;
+    background: #e0f2fe;
+    padding: 4px 8px;
+    border-radius: 5px;
+    align-self: center;
+    white-space: nowrap;
+    min-width: 34px;
+    text-align: center;
+}
+
+.line-field {
+    flex: 1;
+    min-width: 110px;
+}
+
+.line-field label {
+    display: block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--slate-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+}
+
+.line-readonly {
+    padding: 9px 11px;
+    border: 1px solid var(--slate-200);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: var(--slate-500);
+    background: var(--slate-100);
+    font-weight: 500;
+}
+
+.btn-add-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border: 1px dashed #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 4px;
+    width: 100%;
+    justify-content: center;
+}
+
+.btn-add-line:hover {
+    background: #dbeafe;
+    border-color: #60a5fa;
+}
+
+.btn-remove-line {
+    padding: 6px 10px;
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    color: #dc2626;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1;
+    align-self: flex-end;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.btn-remove-line:hover { background: #dc2626; color: #fff; }
+
+
 /* Progress */
 .progress-container {
     width: 80px;
