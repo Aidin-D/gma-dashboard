@@ -187,11 +187,11 @@ function sortPOs(list, by) {
             case 'qty_asc':
                 return (a.qty || 0) - (b.qty || 0);
             case 'status': {
-                const s = { delayed: 0, production: 1, open: 2, shipped: 3 };
+                const s = { delayed: 0, production: 1, open: 2, shipped: 3, closed: 4 };
                 return (s[a.status] ?? 99) - (s[b.status] ?? 99);
             }
             case 'status_desc': {
-                const s = { delayed: 0, production: 1, open: 2, shipped: 3 };
+                const s = { delayed: 0, production: 1, open: 2, shipped: 3, closed: 4 };
                 return (s[b.status] ?? 99) - (s[a.status] ?? 99);
             }
             case 'po_number':
@@ -230,6 +230,8 @@ function renderPOTable(data) {
         const etaStyle      = po.status === 'delayed' ? 'color:#dc2626;font-weight:700' : '';
         const pMeta         = PRIORITY_LABELS[po.priority || 'normal'];
         const hasSpecialReq = (po.special_requests || []).some(r => r.status === 'open');
+        const isClosed      = po.status === 'closed';
+        const closedRowClass = isClosed ? ' po-row-closed' : '';
 
         // Last update — most recent history entry shown inline
         const lastEntry  = (po.history || []).slice(-1)[0];
@@ -297,7 +299,7 @@ function renderPOTable(data) {
             </div>` : '';
 
         return `
-            <tr class="expandable-row po-priority-${po.priority || 'normal'}" onclick="toggleRow('${po.id}')">
+            <tr class="expandable-row po-priority-${po.priority || 'normal'}${closedRowClass}" onclick="toggleRow('${po.id}')">
                 <td style="width:36px;padding-left:20px">
                     <svg id="icon-${po.id}" style="width:14px;height:14px;transition:transform 0.2s;color:#94a3b8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </td>
@@ -454,6 +456,18 @@ function openDrawer(mode = 'create') {
         }
 
         deleteBtn.classList.toggle('hidden', state.role !== 'dometic');
+
+        // Close PO button — Dometic only, enabled only when outstanding_qty === 0
+        const closePOBtn = document.getElementById('closePOBtn');
+        if (closePOBtn) {
+            const po = state.pos.find(p => p.id === editingPOId);
+            const canClose = state.role === 'dometic' && po && po.status !== 'closed';
+            closePOBtn.classList.toggle('hidden', !canClose);
+            closePOBtn.disabled = !po || po.outstanding_qty > 0;
+            closePOBtn.title = po && po.outstanding_qty > 0
+                ? `Cannot close — ${po.outstanding_qty} units still outstanding`
+                : 'Close this PO (outstanding qty is 0)';
+        }
     } else {
         title.textContent    = 'New Purchase Order';
         subtitle.textContent = 'Supply Chain Execution';
@@ -488,6 +502,8 @@ function closeDrawer() {
     document.getElementById('statusFieldGroup').classList.add('hidden');
     document.getElementById('deletePOBtn').classList.add('hidden');
     document.getElementById('specialRequestBtn').classList.add('hidden');
+    const closePOBtn = document.getElementById('closePOBtn');
+    if (closePOBtn) closePOBtn.classList.add('hidden');
     editingPOId = null;
     setPriorityUI('normal');
 }
@@ -979,6 +995,33 @@ window.deletePO = async function() {
     renderAll();
     showToast(`🗑 PO deleted`, 'warning');
 };
+
+// ---- Close PO (Dometic only, outstanding_qty must be 0) ----
+window.closePO = async function() {
+    if (!editingPOId || state.role !== 'dometic') return;
+    const po = state.pos.find(p => p.id === editingPOId);
+    if (!po) return;
+
+    if (po.outstanding_qty > 0) {
+        showToast(`⚠️ Cannot close — ${po.outstanding_qty} units still outstanding`, 'warning');
+        return;
+    }
+
+    const confirmed = confirm(`Close PO ${editingPOId}?\n\nThis will mark it as closed and grey it out on the board.`);
+    if (!confirmed) return;
+
+    po.status = 'closed';
+    logHistory(po, 'PO Closed by Dometic');
+    persistState();
+
+    await CloudService.updatePO(editingPOId, { status: 'closed', history: po.history })
+        .catch(err => console.warn('[ClosePO] Failed:', err));
+
+    closeDrawer();
+    renderAll();
+    showToast(`📬 PO ${editingPOId} closed`);
+};
+
 
 // ---- Audit Trail ----
 function logHistory(po, action) {

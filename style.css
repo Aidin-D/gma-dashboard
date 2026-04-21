@@ -500,6 +500,12 @@ select.form-input {
 .status-production { background: #fff7ed; color: #9a3412; }
 .status-shipped { background: #ecfdf5; color: #047857; }
 .status-delayed { background: #fef2f2; color: #b91c1c; }
+.status-closed { background: var(--slate-100); color: var(--slate-400); }
+
+/* Closed PO row — all text muted gray */
+.po-row-closed td { opacity: 0.45; }
+.po-row-closed { background: var(--slate-50) !important; }
+.po-row-closed:hover td { background: var(--slate-100) !important; }
 
 .status-pill.pulse {
     animation: alert-pulse 2s infinite;
@@ -725,6 +731,29 @@ select.form-input {
     background: #dc2626;
     color: #ffffff;
     border-color: #dc2626;
+}
+
+.btn-close-po {
+    padding: 12px 16px;
+    border: 1px solid #d1d5db;
+    background: var(--slate-100);
+    color: var(--slate-600);
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.btn-close-po:hover {
+    background: var(--slate-700);
+    color: #ffffff;
+    border-color: var(--slate-700);
+}
+
+.btn-close-po:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
 }
 
 /* ---- Placeholder Views ---- */

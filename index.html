@@ -245,6 +245,7 @@
                             <option value="production">Production</option>
                             <option value="shipped">Shipped</option>
                             <option value="delayed">Delayed</option>
+                            <option value="closed">Closed</option>
                         </select>
                     </div>
                 </div>
@@ -299,6 +300,9 @@
             </button>
             <div style="flex:1" class="hidden-sm"></div>
             <button type="button" id="cancelModal" class="btn-ghost">Discard</button>
+            <button type="button" id="closePOBtn" class="btn-close-po hidden" onclick="closePO()" title="Close this PO (only available when outstanding qty is 0)">
+                📬 Close PO
+            </button>
             <button type="submit" form="poForm" class="btn-submit">Commit Order</button>
         </div>
     </aside>
