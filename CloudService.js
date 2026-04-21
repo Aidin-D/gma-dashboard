@@ -11,11 +11,15 @@
  * Extended columns (add via ALTER TABLE — see migration below):
  *   priority         text  DEFAULT 'normal'
  *   special_requests jsonb DEFAULT '[]'
+ *   dometic_remarks  text  DEFAULT ''
+ *   zunpower_remarks text  DEFAULT ''
  *
  * -- SQL Migration (run once in Supabase SQL Editor):
  * ALTER TABLE purchase_orders
  *   ADD COLUMN IF NOT EXISTS priority         text    DEFAULT 'normal',
- *   ADD COLUMN IF NOT EXISTS special_requests jsonb   DEFAULT '[]';
+ *   ADD COLUMN IF NOT EXISTS special_requests jsonb   DEFAULT '[]',
+ *   ADD COLUMN IF NOT EXISTS dometic_remarks  text    DEFAULT '',
+ *   ADD COLUMN IF NOT EXISTS zunpower_remarks text    DEFAULT '';
  */
 
 const CloudService = {
@@ -229,6 +233,8 @@ const CloudService = {
             value:            (po.qty || 0) * (po.unit_cost || 0),
             priority:         po.priority          || 'normal',
             special_requests: po.special_requests  || [],
+            dometic_remarks:  po.dometic_remarks   || '',
+            zunpower_remarks: po.zunpower_remarks  || '',
             history:          po.history           || []
         };
     }
