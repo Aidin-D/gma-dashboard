@@ -556,7 +556,7 @@ function openDrawer(mode = 'create') {
         statusGroup.classList.remove('hidden');
         specialBtn.classList.remove('hidden');
         // Role restrictions — ZunPower can only update logistics/status fields
-        const restricted = ['po_number', 'sku', 'qty', 'order_date', 'description', 'dometic_remarks'];
+        const restricted = ['po_number', 'sku', 'qty', 'order_date', 'description', 'dometic_remarks', 'ship_date', 'eta'];
         const isZP = state.role === 'zunpower';
         restricted.forEach(fname => {
             const el = poForm.querySelector(`[name="${fname}"]`);
