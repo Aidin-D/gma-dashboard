@@ -298,18 +298,21 @@
                 <button type="button" id="addShipmentLineBtn" class="btn-add-line" onclick="addShipmentLine()">+ Add Shipment Line</button>
             </section>
         </form>
-        <div class="drawer-footer mobile-stack">
-            <button type="button" id="deletePOBtn" class="btn-danger hidden" onclick="deletePO()">Delete PO</button>
-            <button type="button" id="specialRequestBtn" class="btn-special hidden" onclick="openSpecialRequestModal()">
-                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                Special Request
-            </button>
-            <div style="flex:1" class="hidden-sm"></div>
-            <button type="button" id="cancelModal" class="btn-ghost">Discard</button>
-            <button type="button" id="closePOBtn" class="btn-close-po hidden" onclick="closePO()" title="Close this PO (only available when outstanding qty is 0)">
-                📬 Close PO
-            </button>
-            <button type="submit" form="poForm" class="btn-submit">Commit Order</button>
+        <div class="drawer-footer">
+            <!-- Row 1: secondary/destructive actions -->
+            <div class="drawer-footer-secondary">
+                <button type="button" id="deletePOBtn" class="btn-danger hidden" onclick="deletePO()">Delete PO</button>
+                <button type="button" id="specialRequestBtn" class="btn-special hidden" onclick="openSpecialRequestModal()">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    Special Request
+                </button>
+                <button type="button" id="closePOBtn" class="btn-close-po hidden" onclick="closePO()" title="Close this PO (only available when outstanding qty is 0)">📬 Close PO</button>
+            </div>
+            <!-- Row 2: primary actions -->
+            <div class="drawer-footer-primary">
+                <button type="button" id="cancelModal" class="btn-ghost">Discard</button>
+                <button type="submit" form="poForm" class="btn-submit">Save Changes</button>
+            </div>
         </div>
     </aside>
 

@@ -823,12 +823,34 @@ select.form-input {
 .form-input::placeholder { color: var(--slate-400); }
 
 .drawer-footer {
-    padding: 20px 28px;
+    padding: 16px 28px;
     border-top: 1px solid var(--slate-100);
     background: #ffffff;
     display: flex;
-    gap: 12px;
+    flex-direction: column;
+    gap: 10px;
 }
+
+.drawer-footer-secondary {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.drawer-footer-secondary .btn-danger,
+.drawer-footer-secondary .btn-special,
+.drawer-footer-secondary .btn-close-po {
+    flex: 1;
+    min-width: 100px;
+}
+
+.drawer-footer-primary {
+    display: flex;
+    gap: 10px;
+}
+
+.drawer-footer-primary .btn-ghost  { flex: 1; }
+.drawer-footer-primary .btn-submit { flex: 2; }
 
 .drawer-footer.mobile-stack {
     display: flex;
