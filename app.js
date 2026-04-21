@@ -1,4 +1,4 @@
-// GMA Live Dashboard — App Logic v3.5
+// GMA Live Dashboard — App Logic v3.7
 // Priority System · Special Requests · Login Gate · Supabase Sync
 
 // ---- Priority Levels (order = sort weight) ----
@@ -721,6 +721,7 @@ function setupEventListeners() {
             if (!po) return;
 
             const changes = [];
+            const cloudUpdates = {};
             const newStatus   = fd.get('status');
             const newShipDate = fd.get('ship_date');
             const newOutstanding = parseInt(fd.get('outstanding_qty'));
@@ -729,65 +730,75 @@ function setupEventListeners() {
             if (newStatus && newStatus !== po.status) {
                 changes.push(`Status → ${cap(newStatus)}`);
                 po.status = newStatus;
+                cloudUpdates.status = newStatus;
             }
             if (newShipDate && newShipDate !== po.ship_date) {
                 changes.push(`Ship Date → ${newShipDate}`);
                 po.ship_date = newShipDate;
+                cloudUpdates.ship_date = newShipDate;
             }
             if (!isNaN(newOutstanding) && newOutstanding !== po.outstanding_qty) {
                 changes.push(`Outstanding Qty → ${newOutstanding}`);
                 po.outstanding_qty = newOutstanding;
+                cloudUpdates.outstanding_qty = newOutstanding;
             }
             if (newPriority && newPriority !== po.priority) {
                 changes.push(`Priority → ${cap(newPriority)}`);
                 po.priority = newPriority;
+                cloudUpdates.priority = newPriority;
             }
 
             const newPoId = fd.get('po_number');
             if (newPoId && newPoId !== po.id) {
                 changes.push(`ID changed to ${newPoId}`);
                 po.id = newPoId;
+                cloudUpdates.id = newPoId;
             }
 
-            po.description   = fd.get('description') || po.description || po.desc;
-            po.desc          = po.description;
-            po.qty           = parseInt(fd.get('qty'))         || po.qty;
+            const newDesc = fd.get('description') || po.description || po.desc;
+            if (newDesc !== po.description) {
+                po.description = newDesc;
+                po.desc = newDesc;
+                cloudUpdates.description = newDesc;
+            }
+
+            const newQty = parseInt(fd.get('qty'));
+            if (!isNaN(newQty) && newQty !== po.qty) {
+                po.qty = newQty;
+                cloudUpdates.qty = newQty;
+            }
             
             if (state.role === 'dometic') {
-                po.dometic_remarks = fd.get('dometic_remarks') ?? po.dometic_remarks;
+                const newDomRem = fd.get('dometic_remarks') || '';
+                if (newDomRem !== (po.dometic_remarks || '')) {
+                    po.dometic_remarks = newDomRem;
+                    cloudUpdates.dometic_remarks = newDomRem;
+                }
             } else if (state.role === 'zunpower') {
-                po.zunpower_remarks = fd.get('zunpower_remarks') ?? po.zunpower_remarks;
+                const newZpRem = fd.get('zunpower_remarks') || '';
+                if (newZpRem !== (po.zunpower_remarks || '')) {
+                    po.zunpower_remarks = newZpRem;
+                    cloudUpdates.zunpower_remarks = newZpRem;
+                }
             }
-            po.reference = `${po.dometic_remarks || ''}|||ZP:${po.zunpower_remarks || ''}`;
             
-            po.eta           = fd.get('eta')        || po.eta;
-            po.order_date    = fd.get('order_date') || po.order_date;
-            po.location      = fd.get('location')   || po.location;
-            po.item_number   = fd.get('sku')        || po.item_number;
+            const newEta = fd.get('eta');
+            if (newEta && newEta !== po.eta) { po.eta = newEta; cloudUpdates.eta = newEta; }
+
+            const newOrderDate = fd.get('order_date');
+            if (newOrderDate && newOrderDate !== po.order_date) { po.order_date = newOrderDate; cloudUpdates.order_date = newOrderDate; }
+
+            const newLoc = fd.get('location');
+            if (newLoc && newLoc !== po.location) { po.location = newLoc; cloudUpdates.location = newLoc; }
+
+            const newSku = fd.get('sku');
+            if (newSku && newSku !== po.item_number) { po.item_number = newSku; cloudUpdates.item_number = newSku; }
 
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
+            cloudUpdates.history = po.history;
+
             persistState();
-            await CloudService.updatePO(editingPOId, {
-                id:              po.id,
-                description:     po.description,
-                qty:             po.qty,
-                outstanding_qty: po.outstanding_qty,
-                unit_cost:       po.unit_cost,
-                currency:        po.currency,
-                reference:       po.reference,
-                dometic_remarks: po.dometic_remarks,
-                zunpower_remarks:po.zunpower_remarks,
-                eta:             po.eta,
-                ship_date:       po.ship_date,
-                order_date:      po.order_date,
-                location:        po.location,
-                status:          po.status,
-                item_number:     po.item_number,
-                value:           po.value,
-                priority:        po.priority,
-                special_requests: po.special_requests,
-                history:         po.history
-            }).catch(err => console.warn('[Save] Update failed:', err));
+            await CloudService.updatePO(editingPOId, cloudUpdates).catch(err => console.warn('[Save] Update failed:', err));
 
         } else {
             const newPO = {
@@ -797,7 +808,7 @@ function setupEventListeners() {
                 desc:            fd.get('description'),
                 qty:             parseInt(fd.get('qty'))            || 0,
                 outstanding_qty: parseInt(fd.get('outstanding_qty') || fd.get('qty')) || 0,
-                reference:       `${fd.get('dometic_remarks') || ''}|||ZP:`,
+                reference:       '',
                 dometic_remarks: fd.get('dometic_remarks') || '',
                 zunpower_remarks: '',
                 status:          'open',
@@ -877,19 +888,27 @@ async function syncWithCloud() {
         if (Array.isArray(cloudPOs) && cloudPOs.length > 0) {
             // Ensure special_requests field exists on all POs
             state.pos = cloudPOs.map(po => {
-                let dRem = po.reference || '';
-                let zRem = '';
-                const idx = dRem.indexOf('|||ZP:');
-                if (idx !== -1) {
-                    zRem = dRem.substring(idx + 6);
-                    dRem = dRem.substring(0, idx);
+                let dRem = po.dometic_remarks;
+                let zRem = po.zunpower_remarks;
+                
+                if (dRem === undefined || dRem === null) {
+                    let ref = po.reference || '';
+                    const idx = ref.indexOf('|||ZP:');
+                    if (idx !== -1) {
+                        zRem = ref.substring(idx + 6);
+                        dRem = ref.substring(0, idx);
+                    } else {
+                        dRem = ref;
+                        zRem = '';
+                    }
                 }
+
                 return {
                     ...po,
                     priority:         po.priority         || 'normal',
                     special_requests: po.special_requests || [],
-                    dometic_remarks:  dRem,
-                    zunpower_remarks: zRem
+                    dometic_remarks:  dRem || '',
+                    zunpower_remarks: zRem || ''
                 };
             });
             persistState();
