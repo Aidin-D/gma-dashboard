@@ -444,8 +444,8 @@ function fillForm(po) {
     if (dRem === undefined) {
         dRem = (typeof po.reference === 'string' && po.reference.includes('|||ZP:')) ? po.reference.split('|||ZP:')[0] : (po.reference || '');
     }
-    f.querySelector('[name="dometic_remarks"]').value = dRem || '';
-    f.querySelector('[name="zunpower_remarks"]').value= po.zunpower_remarks || '';
+    f.querySelector('[name="dometic_remarks"]').value  = dRem ?? '';
+    f.querySelector('[name="zunpower_remarks"]').value = po.zunpower_remarks ?? '';
     f.querySelector('[name="priority"]').value       = po.priority || 'normal';
     setPriorityUI(po.priority || 'normal');
     // Init shipment lines
@@ -900,23 +900,27 @@ function setupEventListeners() {
             }
             
             if (state.role === 'dometic') {
-                const newDomRem = fd.get('dometic_remarks') || '';
-                if (newDomRem !== (po.dometic_remarks || '')) {
+                const newDomRem = fd.get('dometic_remarks') ?? '';
+                if (newDomRem !== (po.dometic_remarks ?? '')) {
                     changes.push(`Dometic Remarks updated`);
                 }
-                // Always include in payload — omitting it on non-remark saves
-                // would leave the DB column unchanged (correct), but we must
-                // persist the current value so the local object stays in sync.
+                // Always include both remarks in the payload so neither column
+                // can drift between roles. Dometic owns dometic_remarks (editable)
+                // and passes zunpower_remarks through unchanged (read-only field).
                 po.dometic_remarks = newDomRem;
                 cloudUpdates.dometic_remarks = newDomRem;
+                cloudUpdates.zunpower_remarks = po.zunpower_remarks ?? '';
             } else if (state.role === 'zunpower') {
-                const newZpRem = fd.get('zunpower_remarks') || '';
-                if (newZpRem !== (po.zunpower_remarks || '')) {
+                const newZpRem = fd.get('zunpower_remarks') ?? '';
+                if (newZpRem !== (po.zunpower_remarks ?? '')) {
                     changes.push(`ZunPower Remarks updated`);
                 }
-                // Always include in payload (same reasoning as above).
+                // Always include both remarks in the payload so neither column
+                // can drift between roles. ZunPower owns zunpower_remarks (editable)
+                // and passes dometic_remarks through unchanged (read-only field).
                 po.zunpower_remarks = newZpRem;
                 cloudUpdates.zunpower_remarks = newZpRem;
+                cloudUpdates.dometic_remarks = po.dometic_remarks ?? '';
             }
             
             const newEta = fd.get('eta');
