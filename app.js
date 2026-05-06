@@ -900,27 +900,22 @@ function setupEventListeners() {
             }
             
             if (state.role === 'dometic') {
-                const newDomRem = fd.get('dometic_remarks') ?? '';
-                if (newDomRem !== (po.dometic_remarks ?? '')) {
+                const newDomRem = fd.get('dometic_remarks') || '';
+                if (newDomRem !== (po.dometic_remarks || '')) {
                     changes.push(`Dometic Remarks updated`);
                 }
-                // Always include both remarks in the payload so neither column
-                // can drift between roles. Dometic owns dometic_remarks (editable)
-                // and passes zunpower_remarks through unchanged (read-only field).
+                // Always write back — ensures local state and Supabase stay in sync
+                // even when saving other fields alongside remarks.
                 po.dometic_remarks = newDomRem;
                 cloudUpdates.dometic_remarks = newDomRem;
-                cloudUpdates.zunpower_remarks = po.zunpower_remarks ?? '';
             } else if (state.role === 'zunpower') {
-                const newZpRem = fd.get('zunpower_remarks') ?? '';
-                if (newZpRem !== (po.zunpower_remarks ?? '')) {
+                const newZpRem = fd.get('zunpower_remarks') || '';
+                if (newZpRem !== (po.zunpower_remarks || '')) {
                     changes.push(`ZunPower Remarks updated`);
                 }
-                // Always include both remarks in the payload so neither column
-                // can drift between roles. ZunPower owns zunpower_remarks (editable)
-                // and passes dometic_remarks through unchanged (read-only field).
+                // Always write back — same reasoning as above.
                 po.zunpower_remarks = newZpRem;
                 cloudUpdates.zunpower_remarks = newZpRem;
-                cloudUpdates.dometic_remarks = po.dometic_remarks ?? '';
             }
             
             const newEta = fd.get('eta');
