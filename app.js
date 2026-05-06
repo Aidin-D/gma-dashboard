@@ -955,9 +955,10 @@ function setupEventListeners() {
             cloudUpdates.history = po.history;
 
             persistState();
-            // Use upsert (merge-duplicates) so the save never silently fails
-            // if the PO row doesn't exist in Supabase yet.
-            await CloudService.upsertPO(po).catch(err => console.warn('[Save] Upsert failed:', err));
+            // PATCH only sends the columns in cloudUpdates — safe for cross-role saves
+            // (never touches the other party's remarks). If the PO isn't in Supabase
+            // yet (0 rows matched), updatePO falls back to a full createPO insert.
+            await CloudService.updatePO(editingPOId, cloudUpdates, po).catch(err => console.warn('[Save] Update failed:', err));
 
         } else {
             const newPO = {
