@@ -902,17 +902,21 @@ function setupEventListeners() {
             if (state.role === 'dometic') {
                 const newDomRem = fd.get('dometic_remarks') || '';
                 if (newDomRem !== (po.dometic_remarks || '')) {
-                    po.dometic_remarks = newDomRem;
-                    cloudUpdates.dometic_remarks = newDomRem;
                     changes.push(`Dometic Remarks updated`);
                 }
+                // Always include in payload — omitting it on non-remark saves
+                // would leave the DB column unchanged (correct), but we must
+                // persist the current value so the local object stays in sync.
+                po.dometic_remarks = newDomRem;
+                cloudUpdates.dometic_remarks = newDomRem;
             } else if (state.role === 'zunpower') {
                 const newZpRem = fd.get('zunpower_remarks') || '';
                 if (newZpRem !== (po.zunpower_remarks || '')) {
-                    po.zunpower_remarks = newZpRem;
-                    cloudUpdates.zunpower_remarks = newZpRem;
                     changes.push(`ZunPower Remarks updated`);
                 }
+                // Always include in payload (same reasoning as above).
+                po.zunpower_remarks = newZpRem;
+                cloudUpdates.zunpower_remarks = newZpRem;
             }
             
             const newEta = fd.get('eta');
@@ -1042,10 +1046,16 @@ async function syncWithCloud() {
         if (Array.isArray(cloudPOs) && cloudPOs.length > 0) {
             // Ensure special_requests field exists on all POs
             state.pos = cloudPOs.map(po => {
+                // The dometic_remarks / zunpower_remarks columns now exist in the DB.
+                // Only fall back to the legacy reference-encoded format when the
+                // column is UNDEFINED (i.e. not returned by the query at all).
+                // A NULL or empty-string value means the column exists but has no
+                // content yet — do NOT overwrite it with the reference field.
                 let dRem = po.dometic_remarks;
                 let zRem = po.zunpower_remarks;
-                
-                if (dRem === undefined || dRem === null) {
+
+                if (dRem === undefined) {
+                    // Legacy path: column was never added to this DB instance.
                     let ref = po.reference || '';
                     const idx = ref.indexOf('|||ZP:');
                     if (idx !== -1) {
@@ -1053,7 +1063,7 @@ async function syncWithCloud() {
                         dRem = ref.substring(0, idx);
                     } else {
                         dRem = ref;
-                        zRem = '';
+                        zRem = zRem === undefined ? '' : zRem;
                     }
                 }
 
@@ -1061,9 +1071,9 @@ async function syncWithCloud() {
                     ...po,
                     priority:         po.priority         || 'normal',
                     special_requests: po.special_requests || [],
-                    dometic_remarks:  dRem || '',
-                    zunpower_remarks: zRem || '',
-                    shipment_lines:   po.shipment_lines || []
+                    dometic_remarks:  dRem  ?? '',
+                    zunpower_remarks: zRem  ?? '',
+                    shipment_lines:   po.shipment_lines   || []
                 };
             });
             persistState();
