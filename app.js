@@ -955,7 +955,9 @@ function setupEventListeners() {
             cloudUpdates.history = po.history;
 
             persistState();
-            await CloudService.updatePO(editingPOId, cloudUpdates).catch(err => console.warn('[Save] Update failed:', err));
+            // Use upsert (merge-duplicates) so the save never silently fails
+            // if the PO row doesn't exist in Supabase yet.
+            await CloudService.upsertPO(po).catch(err => console.warn('[Save] Upsert failed:', err));
 
         } else {
             const newPO = {
