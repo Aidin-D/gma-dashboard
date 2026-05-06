@@ -1,6 +1,6 @@
-// GMA Live Dashboard — App Logic v3.8
+// GMA Live Dashboard — App Logic v3.9
 // Priority System · Special Requests · Login Gate · Supabase Sync
-console.log('%c GMA Dashboard v3.8 loaded ', 'background:#0ea5e9;color:white;padding:2px 8px;border-radius:4px');
+console.log('%c GMA Dashboard v3.9 loaded ', 'background:#0ea5e9;color:white;padding:2px 8px;border-radius:4px');
 
 // ---- Priority Levels (order = sort weight) ----
 const PRIORITY_WEIGHT = { critical: 0, high: 1, normal: 2, low: 3 };
