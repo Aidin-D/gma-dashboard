@@ -900,24 +900,31 @@ function setupEventListeners() {
                 cloudUpdates.qty = newQty;
             }
             
-            if (state.role === 'dometic') {
-                const newDomRem = fd.get('dometic_remarks') || '';
-                if (newDomRem !== (po.dometic_remarks || '')) {
-                    changes.push(`Dometic Remarks updated`);
-                }
-                // Always write back — ensures local state and Supabase stay in sync
-                // even when saving other fields alongside remarks.
-                po.dometic_remarks = newDomRem;
-                cloudUpdates.dometic_remarks = newDomRem;
-            } else if (state.role === 'zunpower') {
-                const newZpRem = fd.get('zunpower_remarks') || '';
-                if (newZpRem !== (po.zunpower_remarks || '')) {
-                    changes.push(`ZunPower Remarks updated`);
-                }
-                // Always write back — same reasoning as above.
-                po.zunpower_remarks = newZpRem;
-                cloudUpdates.zunpower_remarks = newZpRem;
+            // --- Remarks: always read directly from DOM and always send ---
+            // state.role may be null after page refresh if loadLocalState didn't
+            // restore it; reading directly from the editable textarea is reliable.
+            const domRemEl = poForm.querySelector('[name="dometic_remarks"]');
+            const zpRemEl  = poForm.querySelector('[name="zunpower_remarks"]');
+            const domRemVal = domRemEl ? (domRemEl.value || '') : (po.dometic_remarks  || '');
+            const zpRemVal  = zpRemEl  ? (zpRemEl.value  || '') : (po.zunpower_remarks || '');
+
+            if (domRemVal !== (po.dometic_remarks || ''))  changes.push('Dometic Remarks updated');
+            if (zpRemVal  !== (po.zunpower_remarks || '')) changes.push('ZunPower Remarks updated');
+
+            po.dometic_remarks  = domRemVal;
+            po.zunpower_remarks = zpRemVal;
+
+            // Only send the remark the current role owns (surgical PATCH).
+            // The other field is intentionally omitted so Supabase preserves it.
+            if (state.role === 'dometic')  cloudUpdates.dometic_remarks  = domRemVal;
+            if (state.role === 'zunpower') cloudUpdates.zunpower_remarks = zpRemVal;
+            // Fallback: if role is somehow null, send both so nothing is lost.
+            if (!state.role) {
+                cloudUpdates.dometic_remarks  = domRemVal;
+                cloudUpdates.zunpower_remarks = zpRemVal;
             }
+
+            console.log('[Save] role:', state.role, '| domRem:', domRemVal, '| zpRem:', zpRemVal);
             
             const newEta = fd.get('eta');
             if (newEta && newEta !== po.eta) { po.eta = newEta; cloudUpdates.eta = newEta; }
@@ -1029,8 +1036,9 @@ function loadLocalState() {
             if (Array.isArray(parsed.pos) && parsed.pos.length > 0) {
                 state.pos = parsed.pos;
             }
-            // Don't restore role automatically — always require re-login
-            // But keep authenticated flag from session check
+            // Restore role so the save handler's role checks work across page refreshes.
+            // Authentication is still enforced via the HttpOnly cookie on every API call.
+            if (parsed.role) state.role = parsed.role;
             state.authenticated = parsed.authenticated || false;
         }
     } catch (e) {
