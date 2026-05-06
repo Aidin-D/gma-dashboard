@@ -197,6 +197,21 @@ const CloudService = {
     },
 
     /**
+     * Upsert a full PO row — INSERT if missing, UPDATE if exists (by primary key).
+     * Use this for saves so a PATCH never silently fails on a PO not yet in Supabase.
+     */
+    async upsertPO(po) {
+        if (this.isMock) return po;
+
+        const row = this._toRow(po);
+        return this._request(this.apiUrl, {
+            method: 'POST',
+            headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+            body: JSON.stringify(row)
+        });
+    },
+
+    /**
      * Delete a PO by id.
      */
     async deletePO(poId) {
