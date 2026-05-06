@@ -41,8 +41,13 @@ export default async function handler(req) {
       body
     });
 
-    // 204 No Content = success for PATCH / DELETE — check BEFORE !ok
+    // 204 No Content from Supabase means 0 rows matched the filter.
+    // For PATCH: convert to 200+[] so the client can detect and fall back to INSERT.
+    // For DELETE: keep 204 (success means the row is gone).
     if (supabaseResp.status === 204) {
+      if (req.method === 'PATCH') {
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       return new Response(null, { status: 204 });
     }
 
