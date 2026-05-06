@@ -162,53 +162,44 @@ const CloudService = {
 
     /**
      * Patch specific fields on an existing PO.
-     * Tries with all supplied fields first; if Supabase rejects due to missing
-     * extended columns, automatically retries with only core columns.
+     * Uses return=representation so we can detect 0-row updates (PO not in DB yet)
+     * and fall back to a full createPO insert automatically.
      *
      * @param {string} poId    — the PO id (primary key)
-     * @param {object} updates — partial field map
+     * @param {object} updates — partial field map  (only columns you want to change)
+     * @param {object} fullPO  — full PO object from state (used for fallback insert)
      */
-    async updatePO(poId, updates) {
+    async updatePO(poId, updates, fullPO = null) {
         if (this.isMock) return true;
 
         const url = `${this.apiUrl}?id=eq.${encodeURIComponent(poId)}`;
-        const opts = { method: 'PATCH', headers: { 'Prefer': 'return=minimal' } };
+        // Use return=representation so an empty array tells us 0 rows were matched.
+        const opts = { method: 'PATCH', headers: { 'Prefer': 'return=representation' } };
 
-        // If we already know extended columns are missing, strip them immediately
+        let payload = updates;
         if (this._extendedColumnsAvailable === false) {
-            const safeUpdates = this._stripExtendedColumns(updates);
-            return this._request(url, { ...opts, body: JSON.stringify(safeUpdates) });
+            payload = this._stripExtendedColumns(updates);
         }
 
-        // Try full update
         try {
-            const result = await this._request(url, { ...opts, body: JSON.stringify(updates) });
+            const result = await this._request(url, { ...opts, body: JSON.stringify(payload) });
             this._extendedColumnsAvailable = true;
+
+            // Empty array = PATCH matched 0 rows → PO doesn't exist in Supabase yet.
+            if (Array.isArray(result) && result.length === 0 && fullPO) {
+                console.warn(`[CloudService] PATCH matched 0 rows for ${poId} — inserting now.`);
+                return this.createPO(fullPO);
+            }
             return result;
         } catch (err) {
             if (this._isMissingColumnError(err)) {
-                console.warn('[CloudService] Retrying PATCH without extended columns. Run the SQL migration to persist priority/special_requests in Supabase.');
+                console.warn('[CloudService] Retrying PATCH without extended columns.');
                 this._extendedColumnsAvailable = false;
                 const safeUpdates = this._stripExtendedColumns(updates);
                 return this._request(url, { ...opts, body: JSON.stringify(safeUpdates) });
             }
             throw err;
         }
-    },
-
-    /**
-     * Upsert a full PO row — INSERT if missing, UPDATE if exists (by primary key).
-     * Use this for saves so a PATCH never silently fails on a PO not yet in Supabase.
-     */
-    async upsertPO(po) {
-        if (this.isMock) return po;
-
-        const row = this._toRow(po);
-        return this._request(this.apiUrl, {
-            method: 'POST',
-            headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-            body: JSON.stringify(row)
-        });
     },
 
     /**
