@@ -1,5 +1,6 @@
-// GMA Live Dashboard — App Logic v3.7
+// GMA Live Dashboard — App Logic v3.8
 // Priority System · Special Requests · Login Gate · Supabase Sync
+console.log('%c GMA Dashboard v3.8 loaded ', 'background:#0ea5e9;color:white;padding:2px 8px;border-radius:4px');
 
 // ---- Priority Levels (order = sort weight) ----
 const PRIORITY_WEIGHT = { critical: 0, high: 1, normal: 2, low: 3 };
@@ -958,7 +959,13 @@ function setupEventListeners() {
             // PATCH only sends the columns in cloudUpdates — safe for cross-role saves
             // (never touches the other party's remarks). If the PO isn't in Supabase
             // yet (0 rows matched), updatePO falls back to a full createPO insert.
-            await CloudService.updatePO(editingPOId, cloudUpdates, po).catch(err => console.warn('[Save] Update failed:', err));
+            try {
+                await CloudService.updatePO(editingPOId, cloudUpdates, po);
+            } catch (err) {
+                console.error('[Save] Update failed:', err);
+                showToast(`❌ Save failed — ${err.message}`, 'error');
+                return; // Don't close drawer if save failed
+            }
 
         } else {
             const newPO = {
