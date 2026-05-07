@@ -215,18 +215,21 @@ function sortPOs(list, by) {
 
 // ---- Split-shipment helpers ----
 
-/** Compute aggregate totals from shipment lines (fallback to top-level fields if no lines) */
+/**
+ * Returns display values for a PO.
+ * qty and outstanding_qty always come from the PO's own top-level fields —
+ * split lines are a delivery schedule and NEVER override the original totals.
+ * ETA / ship_date show the earliest scheduled date across lines (informational only).
+ */
 function computeTotals(po) {
     const lines = po.shipment_lines || [];
+    // Always use the authoritative PO-level qty / outstanding_qty
+    const qty             = po.qty             || 0;
+    const outstanding_qty = po.outstanding_qty || 0;
     if (lines.length === 0) {
-        return { qty: po.qty || 0, outstanding_qty: po.outstanding_qty || 0, eta: po.eta, ship_date: po.ship_date };
+        return { qty, outstanding_qty, eta: po.eta, ship_date: po.ship_date };
     }
-    const qty             = lines.reduce((s, l) => s + (parseInt(l.qty) || 0), 0);
-    // Use Number() to catch NaN properly, then default to line.qty when outstanding_qty not set
-    const outstanding_qty = lines.reduce((s, l) => {
-        const oq = parseInt(l.outstanding_qty);
-        return s + (isNaN(oq) ? (parseInt(l.qty) || 0) : oq);
-    }, 0);
+    // ETA and ship_date: show earliest across lines (display-only, not persisted from here)
     const etas  = lines.map(l => l.eta).filter(Boolean).sort();
     const ships = lines.map(l => l.ship_date).filter(Boolean).sort();
     return { qty, outstanding_qty, eta: etas[0] || po.eta, ship_date: ships[0] || po.ship_date };
@@ -367,11 +370,11 @@ function renderPOTable(data) {
                 <td style="font-weight:700;color:#1e293b">${po.id}</td>
                 <td style="font-weight:600">${po.item_number || '—'}</td>
                 <td><span class="status-pill status-${po.status}${pulseClass}">${po.status}</span></td>
-                <td class="hidden-sm" style="${etaStyle}">${totals.eta || 'TBD'}${hasLines ? '<span class="lines-badge">split</span>' : ''}</td>
+                <td class="hidden-sm" style="${etaStyle}">${po.eta || 'TBD'}${hasLines ? '<span class="lines-badge">split</span>' : ''}</td>
                 <td class="hidden-md">
-                    <span style="font-weight:600">${totals.qty}</span>
+                    <span style="font-weight:600">${po.qty}</span>
                     <span style="color:#94a3b8;font-size:0.75rem"> / </span>
-                    <span style="font-weight:700;color:${totals.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${totals.outstanding_qty}</span>
+                    <span style="font-weight:700;color:${po.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${po.outstanding_qty}</span>
                     ${hasLines ? `<span class="lines-badge">${(po.shipment_lines||[]).length}L</span>` : ''}
                 </td>
                 <td class="hidden-md last-update-cell">${lastUpdate}</td>
@@ -439,29 +442,26 @@ let editingLines = []; // working copy of shipment lines in drawer
 
 function fillForm(po) {
     const f = poForm;
-    f.querySelector('[name="po_number"]').value      = po.id;
-    f.querySelector('[name="sku"]').value            = po.item_number || '';
-    f.querySelector('[name="description"]').value    = po.description || po.desc || '';
-    f.querySelector('[name="location"]').value       = po.location || '';
-    f.querySelector('[name="order_date"]').value     = po.order_date || '';
-    f.querySelector('[name="eta"]').value            = po.eta || '';
-    f.querySelector('[name="ship_date"]').value      = po.ship_date || '';
-    f.querySelector('[name="status"]').value         = po.status || 'open';
+    f.querySelector('[name="po_number"]').value       = po.id;
+    f.querySelector('[name="sku"]').value             = po.item_number || '';
+    f.querySelector('[name="description"]').value     = po.description || po.desc || '';
+    f.querySelector('[name="qty"]').value             = po.qty ?? '';
+    f.querySelector('[name="outstanding_qty"]').value = po.outstanding_qty ?? po.qty ?? '';
+    f.querySelector('[name="location"]').value        = po.location || '';
+    f.querySelector('[name="order_date"]').value      = po.order_date || '';
+    f.querySelector('[name="eta"]').value             = po.eta || '';
+    f.querySelector('[name="ship_date"]').value       = po.ship_date || '';
+    f.querySelector('[name="status"]').value          = po.status || 'open';
     let dRem = po.dometic_remarks;
     if (dRem === undefined) {
         dRem = (typeof po.reference === 'string' && po.reference.includes('|||ZP:')) ? po.reference.split('|||ZP:')[0] : (po.reference || '');
     }
     f.querySelector('[name="dometic_remarks"]').value  = dRem ?? '';
     f.querySelector('[name="zunpower_remarks"]').value = po.zunpower_remarks ?? '';
-    f.querySelector('[name="priority"]').value       = po.priority || 'normal';
+    f.querySelector('[name="priority"]').value        = po.priority || 'normal';
     setPriorityUI(po.priority || 'normal');
-    // Init shipment lines — qty/outstanding form fields will be set by _syncLineTotalsToForm
+    // Init shipment lines (delivery schedule — does not affect top-level qty/outstanding)
     editingLines = (po.shipment_lines || []).map(l => ({ ...l }));
-    // If no lines, populate qty/outstanding from PO directly
-    if (editingLines.length === 0) {
-        f.querySelector('[name="qty"]').value             = po.qty ?? '';
-        f.querySelector('[name="outstanding_qty"]').value = po.outstanding_qty ?? po.qty ?? '';
-    }
     renderDrawerLines();
 }
 
@@ -483,14 +483,8 @@ function renderDrawerLines() {
         container.innerHTML = isZP
             ? `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines on this PO.</p>`
             : `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines — click "+ Add Shipment Line" to split this PO across multiple deliveries.</p>`;
-        // Unlock top-level qty/outstanding when no lines
-        _setQtyFieldsLocked(false);
         return;
     }
-
-    // Lock top-level qty/outstanding — they are derived from lines
-    _setQtyFieldsLocked(true);
-    _syncLineTotalsToForm();
 
     const LOCATION_OPTS = ['DCIN', 'FTN', 'REMCO', 'OTHERS'];
 
@@ -532,38 +526,6 @@ function safeOutstanding(line) {
     return isNaN(oq) ? (parseInt(line.qty) || 0) : oq;
 }
 
-/**
- * Locks or unlocks the top-level qty / outstanding_qty form inputs.
- * When lines are active these are derived fields — editing them directly
- * would be inconsistent with the line totals.
- */
-function _setQtyFieldsLocked(locked) {
-    const qtyEl  = poForm.querySelector('[name="qty"]');
-    const outEl  = poForm.querySelector('[name="outstanding_qty"]');
-    if (!qtyEl || !outEl) return;
-    qtyEl.readOnly  = locked;
-    outEl.readOnly  = locked;
-    const bg = locked ? 'var(--slate-50)' : 'white';
-    qtyEl.style.background  = bg;
-    outEl.style.background  = bg;
-    qtyEl.title  = locked ? 'Derived from shipment lines — edit line quantities above' : '';
-    outEl.title  = locked ? 'Derived from shipment lines — edit line outstanding values above' : '';
-}
-
-/**
- * Reads the current editingLines totals and writes them into the
- * top-level qty / outstanding_qty form fields so the user can see
- * the running totals at a glance while editing lines.
- */
-function _syncLineTotalsToForm() {
-    if (editingLines.length === 0) return;
-    const totalQty = editingLines.reduce((s, l) => s + (parseInt(l.qty) || 0), 0);
-    const totalOut = editingLines.reduce((s, l) => s + safeOutstanding(l), 0);
-    const qtyEl = poForm.querySelector('[name="qty"]');
-    const outEl = poForm.querySelector('[name="outstanding_qty"]');
-    if (qtyEl) qtyEl.value = totalQty;
-    if (outEl) outEl.value = totalOut;
-}
 
 window.addShipmentLine = function() {
     if (state.role !== 'dometic') return;
@@ -576,25 +538,14 @@ window.addShipmentLine = function() {
 };
 
 window.removeShipmentLine = function(lineId) {
-    // Capture current top-level values before they potentially get unlocked
-    const qtyEl = poForm.querySelector('[name="qty"]');
-    const outEl = poForm.querySelector('[name="outstanding_qty"]');
     editingLines = editingLines.filter(l => l.id !== lineId);
     renderDrawerLines();
-    // If all lines gone, restore the original top-level values from state
-    if (editingLines.length === 0 && editingPOId) {
-        const po = state.pos.find(p => p.id === editingPOId);
-        if (po && qtyEl) qtyEl.value = po.qty ?? '';
-        if (po && outEl) outEl.value = po.outstanding_qty ?? po.qty ?? '';
-    }
 };
 
 window.updateEditingLine = function(lineId, field, value) {
     const line = editingLines.find(l => l.id === lineId);
     if (!line) return;
     line[field] = (field === 'qty' || field === 'outstanding_qty') ? (parseInt(value) || 0) : value;
-    // Keep top-level totals in sync with lines as the user types
-    _syncLineTotalsToForm();
 };
 
 
@@ -947,9 +898,7 @@ function setupEventListeners() {
                 po.ship_date = newShipDate;
                 cloudUpdates.ship_date = newShipDate;
             }
-            // Only update from the form field when NO lines are active.
-            // When lines exist, outstanding_qty is derived from SUM(lines.outstanding_qty).
-            if (editingLines.length === 0 && !isNaN(newOutstanding) && newOutstanding !== po.outstanding_qty) {
+            if (!isNaN(newOutstanding) && newOutstanding !== po.outstanding_qty) {
                 changes.push(`Outstanding Qty → ${newOutstanding}`);
                 po.outstanding_qty = newOutstanding;
                 cloudUpdates.outstanding_qty = newOutstanding;
@@ -975,9 +924,7 @@ function setupEventListeners() {
             }
 
             const newQty = parseInt(fd.get('qty'));
-            // Only update top-level qty from the form field when NO lines are active.
-            // When lines exist, qty is derived from SUM(lines.qty) — the form field is locked.
-            if (editingLines.length === 0 && !isNaN(newQty) && newQty !== po.qty) {
+            if (!isNaN(newQty) && newQty !== po.qty) {
                 po.qty = newQty;
                 cloudUpdates.qty = newQty;
             }
@@ -1037,14 +984,9 @@ function setupEventListeners() {
             }
             po.shipment_lines = cleanedLines;
             cloudUpdates.shipment_lines = cleanedLines;
-            // Sync top-level aggregates from lines if any exist
-            if (cleanedLines.length > 0) {
-                const lt = computeTotals(po);
-                po.qty = lt.qty;                         cloudUpdates.qty             = lt.qty;
-                po.outstanding_qty = lt.outstanding_qty; cloudUpdates.outstanding_qty = lt.outstanding_qty;
-                if (lt.eta)       { po.eta       = lt.eta;       cloudUpdates.eta       = lt.eta; }
-                if (lt.ship_date) { po.ship_date = lt.ship_date; cloudUpdates.ship_date = lt.ship_date; }
-            }
+            // NOTE: shipment lines are a delivery schedule only.
+            // They NEVER overwrite po.qty, po.outstanding_qty, po.eta, or po.ship_date.
+            // Those remain under the sole control of their own form fields.
 
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
             cloudUpdates.history = po.history;
