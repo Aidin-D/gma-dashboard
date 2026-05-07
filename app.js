@@ -238,13 +238,14 @@ function renderShipmentLinesPanel(po) {
         <div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px">
             <p class="detail-label" style="margin-bottom:10px;color:#0369a1">Shipment Lines &nbsp;<span style="font-weight:500;text-transform:none;letter-spacing:0;font-size:0.75rem;color:#64748b">${lines.length} line${lines.length > 1 ? 's' : ''}</span></p>
             <table class="shipment-lines-table">
-                <thead><tr><th>#</th><th>Qty</th><th>Outstanding</th><th>Ship Date</th><th>ETA</th></tr></thead>
+                <thead><tr><th>#</th><th>Qty</th><th>Outstanding</th><th>Location</th><th>Ship Date</th><th>ETA</th></tr></thead>
                 <tbody>
                     ${lines.map((l, i) => `
                         <tr>
                             <td><span class="lines-badge" style="margin:0">L${i + 1}</span></td>
                             <td>${l.qty || 0}</td>
                             <td style="font-weight:700;color:${(parseInt(l.outstanding_qty) ?? parseInt(l.qty) ?? 0) > 0 ? '#ea580c' : '#059669'}">${l.outstanding_qty ?? l.qty ?? 0}</td>
+                            <td>${l.location || '—'}</td>
                             <td>${l.ship_date || '—'}</td>
                             <td>${l.eta || '—'}</td>
                         </tr>`).join('')}
@@ -253,7 +254,7 @@ function renderShipmentLinesPanel(po) {
                     <td>Total</td>
                     <td>${totalQty}</td>
                     <td style="font-weight:700;color:${totalOut > 0 ? '#ea580c' : '#059669'}">${totalOut}</td>
-                    <td colspan="2"></td>
+                    <td colspan="3"></td>
                 </tr></tfoot>
             </table>
         </div>`;
@@ -474,6 +475,8 @@ function renderDrawerLines() {
         return;
     }
 
+    const LOCATION_OPTS = ['DCIN', 'FTN', 'REMCO', 'OTHERS'];
+
     container.innerHTML = editingLines.map((l, i) => {
         const id = l.id;
         if (isZP) {
@@ -482,15 +485,20 @@ function renderDrawerLines() {
                 <div class="line-num">L${i + 1}</div>
                 <div class="line-field"><label>Qty</label><div class="line-readonly">${l.qty || 0}</div></div>
                 <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${l.outstanding_qty ?? l.qty ?? 0}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+                <div class="line-field"><label>Location</label><div class="line-readonly">${l.location || '—'}</div></div>
                 <div class="line-field"><label>Ship Date</label><div class="line-readonly">${l.ship_date || '—'}</div></div>
                 <div class="line-field"><label>ETA</label><div class="line-readonly">${l.eta || '—'}</div></div>
             </div>`;
         }
+        const locOptions = LOCATION_OPTS.map(opt =>
+            `<option value="${opt}" ${l.location === opt ? 'selected' : ''}>${opt}</option>`
+        ).join('');
         return `
         <div class="shipment-line-row">
             <div class="line-num">L${i + 1}</div>
             <div class="line-field"><label>Qty</label><input type="number" class="form-input" min="0" value="${l.qty || ''}" oninput="updateEditingLine('${id}','qty',this.value)"></div>
             <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${l.outstanding_qty ?? l.qty ?? ''}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+            <div class="line-field"><label>Location</label><select class="form-input" onchange="updateEditingLine('${id}','location',this.value)"><option value="">Select...</option>${locOptions}</select></div>
             <div class="line-field"><label>Ship Date</label><input type="date" class="form-input" value="${l.ship_date || ''}" oninput="updateEditingLine('${id}','ship_date',this.value)"></div>
             <div class="line-field"><label>ETA</label><input type="date" class="form-input" value="${l.eta || ''}" oninput="updateEditingLine('${id}','eta',this.value)"></div>
             <button type="button" class="btn-remove-line" onclick="removeShipmentLine('${id}')" title="Remove line">&#x2715;</button>
@@ -502,7 +510,7 @@ window.addShipmentLine = function() {
     if (state.role !== 'dometic') return;
     const newLine = {
         id: 'line-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-        qty: 0, outstanding_qty: 0, ship_date: '', eta: ''
+        qty: 0, outstanding_qty: 0, location: '', ship_date: '', eta: ''
     };
     editingLines.push(newLine);
     renderDrawerLines();
@@ -939,24 +947,29 @@ function setupEventListeners() {
             if (newSku && newSku !== po.item_number) { po.item_number = newSku; cloudUpdates.item_number = newSku; }
 
             // Shipment lines (Dometic adds/manages, ZunPower updates outstanding per line)
-            const hasEditLines = editingLines.length > 0;
-            if (hasEditLines) {
-                const cleanedLines = editingLines.map(l => ({
-                    id: l.id,
-                    qty:             parseInt(l.qty)             || 0,
-                    outstanding_qty: parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0),
-                    ship_date:       l.ship_date || '',
-                    eta:             l.eta       || ''
-                }));
-                po.shipment_lines = cleanedLines;
-                cloudUpdates.shipment_lines = cleanedLines;
-                // Sync top-level aggregates from lines
+            // Always sync lines from editingLines (even if unchanged) to keep them accurate.
+            const cleanedLines = editingLines.map(l => ({
+                id:              l.id,
+                qty:             parseInt(l.qty)             || 0,
+                outstanding_qty: parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0),
+                location:        l.location || '',
+                ship_date:       l.ship_date || '',
+                eta:             l.eta       || ''
+            }));
+            const prevLines = JSON.stringify(po.shipment_lines || []);
+            const nextLines = JSON.stringify(cleanedLines);
+            if (prevLines !== nextLines) {
+                changes.push('Shipment lines updated');
+            }
+            po.shipment_lines = cleanedLines;
+            cloudUpdates.shipment_lines = cleanedLines;
+            // Sync top-level aggregates from lines if any exist
+            if (cleanedLines.length > 0) {
                 const lt = computeTotals(po);
-                po.qty = lt.qty;             cloudUpdates.qty             = lt.qty;
+                po.qty = lt.qty;                         cloudUpdates.qty             = lt.qty;
                 po.outstanding_qty = lt.outstanding_qty; cloudUpdates.outstanding_qty = lt.outstanding_qty;
                 if (lt.eta)       { po.eta       = lt.eta;       cloudUpdates.eta       = lt.eta; }
                 if (lt.ship_date) { po.ship_date = lt.ship_date; cloudUpdates.ship_date = lt.ship_date; }
-                changes.push('Shipment lines updated');
             }
 
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
@@ -1150,14 +1163,21 @@ window.deletePO = async function() {
     const confirmed = confirm(`Permanently delete ${editingPOId}?\n\nThis cannot be undone.`);
     if (!confirmed) return;
 
-    state.pos = state.pos.filter(p => p.id !== editingPOId);
-    persistState();
-    await CloudService.deletePO(editingPOId)
-        .catch(err => console.warn('[Delete] Failed:', err));
+    const idToDelete = editingPOId; // capture before closeDrawer clears it
 
+    // Optimistic local removal
+    state.pos = state.pos.filter(p => p.id !== idToDelete);
+    persistState();
     closeDrawer();
     renderAll();
-    showToast(`🗑 PO deleted`, 'warning');
+
+    try {
+        await CloudService.deletePO(idToDelete);
+        showToast(`🗑 PO ${idToDelete} deleted`, 'warning');
+    } catch (err) {
+        console.error('[Delete] Cloud delete failed:', err);
+        showToast(`⚠️ Local delete succeeded but cloud sync failed — ${err.message}`, 'error');
+    }
 };
 
 // ---- Close PO (Dometic only, outstanding_qty must be 0) ----
