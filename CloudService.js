@@ -13,13 +13,15 @@
  *   special_requests jsonb DEFAULT '[]'
  *   dometic_remarks  text  DEFAULT ''
  *   zunpower_remarks text  DEFAULT ''
+ *   shipment_lines   jsonb DEFAULT '[]'
  *
  * -- SQL Migration (run once in Supabase SQL Editor):
  * ALTER TABLE purchase_orders
  *   ADD COLUMN IF NOT EXISTS priority         text    DEFAULT 'normal',
  *   ADD COLUMN IF NOT EXISTS special_requests jsonb   DEFAULT '[]',
  *   ADD COLUMN IF NOT EXISTS dometic_remarks  text    DEFAULT '',
- *   ADD COLUMN IF NOT EXISTS zunpower_remarks text    DEFAULT '';
+ *   ADD COLUMN IF NOT EXISTS zunpower_remarks text    DEFAULT '',
+ *   ADD COLUMN IF NOT EXISTS shipment_lines   jsonb   DEFAULT '[]';
  */
 
 const CloudService = {
@@ -34,15 +36,28 @@ const CloudService = {
      * Extended columns (priority, special_requests) are tried first;
      * if Supabase returns a column-not-found error we fall back to CORE_COLUMNS only.
      */
+    /**
+     * Columns guaranteed to exist in the base DB schema.
+     * shipment_lines is an EXTENDED column — it is NOT in this set so the
+     * fallback strip can remove it when the column has not been migrated yet.
+     */
     CORE_COLUMNS: new Set([
         'id', 'item_number', 'description', 'qty', 'outstanding_qty',
         'unit_cost', 'currency', 'status', 'eta', 'order_date',
         'ship_date', 'location', 'reference', 'value', 'history',
-        'dometic_remarks', 'zunpower_remarks', 'shipment_lines'
+        'dometic_remarks', 'zunpower_remarks',
+        'priority', 'special_requests'
     ]),
 
     /**
-     * Tracks whether the extended columns have been confirmed available.
+     * Tracks whether the shipment_lines column exists in the live schema.
+     * null = not yet tested, true = confirmed, false = not migrated yet.
+     */
+    _shipmentLinesAvailable: null,
+
+    /**
+     * Tracks whether the general extended columns (priority, special_requests, remarks)
+     * have been confirmed available.
      * null = not yet tested, true = available, false = not available
      */
     _extendedColumnsAvailable: null,
@@ -85,11 +100,17 @@ const CloudService = {
         );
     },
 
-    /** Filter an update payload to only include CORE_COLUMNS */
+    /** Filter an update payload to only include CORE_COLUMNS (drops shipment_lines too) */
     _stripExtendedColumns(updates) {
         return Object.fromEntries(
             Object.entries(updates).filter(([k]) => this.CORE_COLUMNS.has(k))
         );
+    },
+
+    /** Filter an update payload to remove only the shipment_lines key */
+    _stripShipmentLines(updates) {
+        const { shipment_lines, ...rest } = updates;
+        return rest;
     },
 
     // ---- Init & Auth ----
@@ -165,6 +186,10 @@ const CloudService = {
      * Uses return=representation so we can detect 0-row updates (PO not in DB yet)
      * and fall back to a full createPO insert automatically.
      *
+     * Retry strategy (two-level):
+     *   1. If shipment_lines column is missing → retry without it.
+     *   2. If other extended columns are missing → retry with core-only payload.
+     *
      * @param {string} poId    — the PO id (primary key)
      * @param {object} updates — partial field map  (only columns you want to change)
      * @param {object} fullPO  — full PO object from state (used for fallback insert)
@@ -173,16 +198,21 @@ const CloudService = {
         if (this.isMock) return true;
 
         const url = `${this.apiUrl}?id=eq.${encodeURIComponent(poId)}`;
-        // Use return=representation so an empty array tells us 0 rows were matched.
         const opts = { method: 'PATCH', headers: { 'Prefer': 'return=representation' } };
 
+        // Build the payload — strip columns we already know are missing
         let payload = updates;
+        if (this._shipmentLinesAvailable === false) {
+            payload = this._stripShipmentLines(payload);
+        }
         if (this._extendedColumnsAvailable === false) {
-            payload = this._stripExtendedColumns(updates);
+            payload = this._stripExtendedColumns(payload);
         }
 
         try {
             const result = await this._request(url, { ...opts, body: JSON.stringify(payload) });
+            // Mark columns as available on first success
+            if (payload.shipment_lines !== undefined) this._shipmentLinesAvailable = true;
             this._extendedColumnsAvailable = true;
 
             // Empty array = PATCH matched 0 rows → PO doesn't exist in Supabase yet.
@@ -193,6 +223,21 @@ const CloudService = {
             return result;
         } catch (err) {
             if (this._isMissingColumnError(err)) {
+                // Determine which column triggered the error
+                const isShipmentLinesErr =
+                    err.message.includes('shipment_lines');
+
+                if (isShipmentLinesErr && this._shipmentLinesAvailable !== false) {
+                    console.warn('[CloudService] shipment_lines column not in DB yet — retrying without it. Run the SQL migration to enable split-shipment persistence.');
+                    this._shipmentLinesAvailable = false;
+                    const safePayload = this._stripShipmentLines(payload);
+                    const result2 = await this._request(url, { ...opts, body: JSON.stringify(safePayload) });
+                    if (Array.isArray(result2) && result2.length === 0 && fullPO) {
+                        return this.createPO(fullPO);
+                    }
+                    return result2;
+                }
+
                 console.warn('[CloudService] Retrying PATCH without extended columns.');
                 this._extendedColumnsAvailable = false;
                 const safeUpdates = this._stripExtendedColumns(updates);
@@ -223,7 +268,7 @@ const CloudService = {
 
     /** Convert the in-memory PO object to a flat DB row (all columns) */
     _toRow(po) {
-        return {
+        const row = {
             id:               po.id,
             item_number:      po.item_number      || '',
             description:      po.description      || po.desc || '',
@@ -242,8 +287,12 @@ const CloudService = {
             special_requests: po.special_requests  || [],
             dometic_remarks:  po.dometic_remarks   || '',
             zunpower_remarks: po.zunpower_remarks  || '',
-            shipment_lines:   po.shipment_lines    || [],
             history:          po.history           || []
         };
+        // Only include shipment_lines if we know the column exists (or haven't tested yet)
+        if (this._shipmentLinesAvailable !== false) {
+            row.shipment_lines = po.shipment_lines || [];
+        }
+        return row;
     }
 };

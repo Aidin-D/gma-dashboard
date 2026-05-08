@@ -215,16 +215,23 @@ function sortPOs(list, by) {
 
 // ---- Split-shipment helpers ----
 
-/** Compute aggregate totals from shipment lines (fallback to top-level fields if no lines) */
+/**
+ * Returns display values for a PO.
+ * qty and outstanding_qty always come from the PO's own top-level fields —
+ * split lines are a delivery schedule and NEVER override the original totals.
+ * ETA / ship_date show the earliest scheduled date across lines (informational only).
+ */
 function computeTotals(po) {
     const lines = po.shipment_lines || [];
+    // Always use the authoritative PO-level qty / outstanding_qty
+    const qty             = po.qty             || 0;
+    const outstanding_qty = po.outstanding_qty || 0;
     if (lines.length === 0) {
-        return { qty: po.qty || 0, outstanding_qty: po.outstanding_qty || 0, eta: po.eta, ship_date: po.ship_date };
+        return { qty, outstanding_qty, eta: po.eta, ship_date: po.ship_date };
     }
-    const qty          = lines.reduce((s, l) => s + (parseInt(l.qty) || 0), 0);
-    const outstanding_qty = lines.reduce((s, l) => s + (parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0)), 0);
-    const etas         = lines.map(l => l.eta).filter(Boolean).sort();
-    const ships        = lines.map(l => l.ship_date).filter(Boolean).sort();
+    // ETA and ship_date: show earliest across lines (display-only, not persisted from here)
+    const etas  = lines.map(l => l.eta).filter(Boolean).sort();
+    const ships = lines.map(l => l.ship_date).filter(Boolean).sort();
     return { qty, outstanding_qty, eta: etas[0] || po.eta, ship_date: ships[0] || po.ship_date };
 }
 
@@ -233,18 +240,22 @@ function renderShipmentLinesPanel(po) {
     const lines = po.shipment_lines || [];
     if (lines.length === 0) return '';
     const totalQty = lines.reduce((s, l) => s + (parseInt(l.qty) || 0), 0);
-    const totalOut = lines.reduce((s, l) => s + (parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0)), 0);
+    const totalOut = lines.reduce((s, l) => {
+        const oq = parseInt(l.outstanding_qty);
+        return s + (isNaN(oq) ? (parseInt(l.qty) || 0) : oq);
+    }, 0);
     return `
         <div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px">
             <p class="detail-label" style="margin-bottom:10px;color:#0369a1">Shipment Lines &nbsp;<span style="font-weight:500;text-transform:none;letter-spacing:0;font-size:0.75rem;color:#64748b">${lines.length} line${lines.length > 1 ? 's' : ''}</span></p>
             <table class="shipment-lines-table">
-                <thead><tr><th>#</th><th>Qty</th><th>Outstanding</th><th>Ship Date</th><th>ETA</th></tr></thead>
+                <thead><tr><th>#</th><th>Qty</th><th>Outstanding</th><th>Location</th><th>Ship Date</th><th>ETA</th></tr></thead>
                 <tbody>
                     ${lines.map((l, i) => `
                         <tr>
                             <td><span class="lines-badge" style="margin:0">L${i + 1}</span></td>
                             <td>${l.qty || 0}</td>
                             <td style="font-weight:700;color:${(parseInt(l.outstanding_qty) ?? parseInt(l.qty) ?? 0) > 0 ? '#ea580c' : '#059669'}">${l.outstanding_qty ?? l.qty ?? 0}</td>
+                            <td>${l.location || '—'}</td>
                             <td>${l.ship_date || '—'}</td>
                             <td>${l.eta || '—'}</td>
                         </tr>`).join('')}
@@ -253,7 +264,7 @@ function renderShipmentLinesPanel(po) {
                     <td>Total</td>
                     <td>${totalQty}</td>
                     <td style="font-weight:700;color:${totalOut > 0 ? '#ea580c' : '#059669'}">${totalOut}</td>
-                    <td colspan="2"></td>
+                    <td colspan="3"></td>
                 </tr></tfoot>
             </table>
         </div>`;
@@ -359,11 +370,11 @@ function renderPOTable(data) {
                 <td style="font-weight:700;color:#1e293b">${po.id}</td>
                 <td style="font-weight:600">${po.item_number || '—'}</td>
                 <td><span class="status-pill status-${po.status}${pulseClass}">${po.status}</span></td>
-                <td class="hidden-sm" style="${etaStyle}">${totals.eta || 'TBD'}${hasLines ? '<span class="lines-badge">split</span>' : ''}</td>
+                <td class="hidden-sm" style="${etaStyle}">${po.eta || 'TBD'}${hasLines ? '<span class="lines-badge">split</span>' : ''}</td>
                 <td class="hidden-md">
-                    <span style="font-weight:600">${totals.qty}</span>
+                    <span style="font-weight:600">${po.qty}</span>
                     <span style="color:#94a3b8;font-size:0.75rem"> / </span>
-                    <span style="font-weight:700;color:${totals.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${totals.outstanding_qty}</span>
+                    <span style="font-weight:700;color:${po.outstanding_qty > 0 ? '#ea580c' : '#059669'}">${po.outstanding_qty}</span>
                     ${hasLines ? `<span class="lines-badge">${(po.shipment_lines||[]).length}L</span>` : ''}
                 </td>
                 <td class="hidden-md last-update-cell">${lastUpdate}</td>
@@ -431,25 +442,25 @@ let editingLines = []; // working copy of shipment lines in drawer
 
 function fillForm(po) {
     const f = poForm;
-    f.querySelector('[name="po_number"]').value      = po.id;
-    f.querySelector('[name="sku"]').value            = po.item_number || '';
-    f.querySelector('[name="description"]').value    = po.description || po.desc || '';
-    f.querySelector('[name="qty"]').value            = po.qty;
-    f.querySelector('[name="outstanding_qty"]').value= po.outstanding_qty ?? po.qty;
-    f.querySelector('[name="location"]').value       = po.location || '';
-    f.querySelector('[name="order_date"]').value     = po.order_date || '';
-    f.querySelector('[name="eta"]').value            = po.eta || '';
-    f.querySelector('[name="ship_date"]').value      = po.ship_date || '';
-    f.querySelector('[name="status"]').value         = po.status || 'open';
+    f.querySelector('[name="po_number"]').value       = po.id;
+    f.querySelector('[name="sku"]').value             = po.item_number || '';
+    f.querySelector('[name="description"]').value     = po.description || po.desc || '';
+    f.querySelector('[name="qty"]').value             = po.qty ?? '';
+    f.querySelector('[name="outstanding_qty"]').value = po.outstanding_qty ?? po.qty ?? '';
+    f.querySelector('[name="location"]').value        = po.location || '';
+    f.querySelector('[name="order_date"]').value      = po.order_date || '';
+    f.querySelector('[name="eta"]').value             = po.eta || '';
+    f.querySelector('[name="ship_date"]').value       = po.ship_date || '';
+    f.querySelector('[name="status"]').value          = po.status || 'open';
     let dRem = po.dometic_remarks;
     if (dRem === undefined) {
         dRem = (typeof po.reference === 'string' && po.reference.includes('|||ZP:')) ? po.reference.split('|||ZP:')[0] : (po.reference || '');
     }
     f.querySelector('[name="dometic_remarks"]').value  = dRem ?? '';
     f.querySelector('[name="zunpower_remarks"]').value = po.zunpower_remarks ?? '';
-    f.querySelector('[name="priority"]').value       = po.priority || 'normal';
+    f.querySelector('[name="priority"]').value        = po.priority || 'normal';
     setPriorityUI(po.priority || 'normal');
-    // Init shipment lines
+    // Init shipment lines (delivery schedule — does not affect top-level qty/outstanding)
     editingLines = (po.shipment_lines || []).map(l => ({ ...l }));
     renderDrawerLines();
 }
@@ -469,10 +480,13 @@ function renderDrawerLines() {
     if (addBtn) addBtn.classList.toggle('hidden', isZP);
 
     if (editingLines.length === 0) {
-        container.innerHTML = `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines — click "+ Add Shipment Line" to split this PO across multiple deliveries.</p>`;
-        if (isZP) container.innerHTML = `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines on this PO.</p>`;
+        container.innerHTML = isZP
+            ? `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines on this PO.</p>`
+            : `<p style="font-size:0.8rem;color:var(--slate-400);margin:0 0 8px;font-style:italic;">No split lines — click "+ Add Shipment Line" to split this PO across multiple deliveries.</p>`;
         return;
     }
+
+    const LOCATION_OPTS = ['DCIN', 'FTN', 'REMCO', 'OTHERS'];
 
     container.innerHTML = editingLines.map((l, i) => {
         const id = l.id;
@@ -481,16 +495,21 @@ function renderDrawerLines() {
             <div class="shipment-line-row">
                 <div class="line-num">L${i + 1}</div>
                 <div class="line-field"><label>Qty</label><div class="line-readonly">${l.qty || 0}</div></div>
-                <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${l.outstanding_qty ?? l.qty ?? 0}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+                <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${safeOutstanding(l)}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+                <div class="line-field"><label>Location</label><div class="line-readonly">${l.location || '—'}</div></div>
                 <div class="line-field"><label>Ship Date</label><div class="line-readonly">${l.ship_date || '—'}</div></div>
                 <div class="line-field"><label>ETA</label><div class="line-readonly">${l.eta || '—'}</div></div>
             </div>`;
         }
+        const locOptions = LOCATION_OPTS.map(opt =>
+            `<option value="${opt}" ${l.location === opt ? 'selected' : ''}>${opt}</option>`
+        ).join('');
         return `
         <div class="shipment-line-row">
             <div class="line-num">L${i + 1}</div>
             <div class="line-field"><label>Qty</label><input type="number" class="form-input" min="0" value="${l.qty || ''}" oninput="updateEditingLine('${id}','qty',this.value)"></div>
-            <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${l.outstanding_qty ?? l.qty ?? ''}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+            <div class="line-field"><label>Outstanding</label><input type="number" class="form-input" min="0" value="${safeOutstanding(l)}" oninput="updateEditingLine('${id}','outstanding_qty',this.value)"></div>
+            <div class="line-field"><label>Location</label><select class="form-input" onchange="updateEditingLine('${id}','location',this.value)"><option value="">Select...</option>${locOptions}</select></div>
             <div class="line-field"><label>Ship Date</label><input type="date" class="form-input" value="${l.ship_date || ''}" oninput="updateEditingLine('${id}','ship_date',this.value)"></div>
             <div class="line-field"><label>ETA</label><input type="date" class="form-input" value="${l.eta || ''}" oninput="updateEditingLine('${id}','eta',this.value)"></div>
             <button type="button" class="btn-remove-line" onclick="removeShipmentLine('${id}')" title="Remove line">&#x2715;</button>
@@ -498,11 +517,21 @@ function renderDrawerLines() {
     }).join('');
 }
 
+/**
+ * Returns a safe outstanding_qty display value for a line.
+ * Defaults to line.qty when outstanding_qty is not yet set (NaN/undefined).
+ */
+function safeOutstanding(line) {
+    const oq = parseInt(line.outstanding_qty);
+    return isNaN(oq) ? (parseInt(line.qty) || 0) : oq;
+}
+
+
 window.addShipmentLine = function() {
     if (state.role !== 'dometic') return;
     const newLine = {
         id: 'line-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-        qty: 0, outstanding_qty: 0, ship_date: '', eta: ''
+        qty: 0, outstanding_qty: 0, location: '', ship_date: '', eta: ''
     };
     editingLines.push(newLine);
     renderDrawerLines();
@@ -516,7 +545,7 @@ window.removeShipmentLine = function(lineId) {
 window.updateEditingLine = function(lineId, field, value) {
     const line = editingLines.find(l => l.id === lineId);
     if (!line) return;
-    line[field] = field === 'qty' || field === 'outstanding_qty' ? (parseInt(value) || 0) : value;
+    line[field] = (field === 'qty' || field === 'outstanding_qty') ? (parseInt(value) || 0) : value;
 };
 
 
@@ -939,25 +968,25 @@ function setupEventListeners() {
             if (newSku && newSku !== po.item_number) { po.item_number = newSku; cloudUpdates.item_number = newSku; }
 
             // Shipment lines (Dometic adds/manages, ZunPower updates outstanding per line)
-            const hasEditLines = editingLines.length > 0;
-            if (hasEditLines) {
-                const cleanedLines = editingLines.map(l => ({
-                    id: l.id,
-                    qty:             parseInt(l.qty)             || 0,
-                    outstanding_qty: parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0),
-                    ship_date:       l.ship_date || '',
-                    eta:             l.eta       || ''
-                }));
-                po.shipment_lines = cleanedLines;
-                cloudUpdates.shipment_lines = cleanedLines;
-                // Sync top-level aggregates from lines
-                const lt = computeTotals(po);
-                po.qty = lt.qty;             cloudUpdates.qty             = lt.qty;
-                po.outstanding_qty = lt.outstanding_qty; cloudUpdates.outstanding_qty = lt.outstanding_qty;
-                if (lt.eta)       { po.eta       = lt.eta;       cloudUpdates.eta       = lt.eta; }
-                if (lt.ship_date) { po.ship_date = lt.ship_date; cloudUpdates.ship_date = lt.ship_date; }
+            // Always sync lines from editingLines (even if unchanged) to keep them accurate.
+            const cleanedLines = editingLines.map(l => ({
+                id:              l.id,
+                qty:             parseInt(l.qty)             || 0,
+                outstanding_qty: parseInt(l.outstanding_qty) ?? (parseInt(l.qty) || 0),
+                location:        l.location || '',
+                ship_date:       l.ship_date || '',
+                eta:             l.eta       || ''
+            }));
+            const prevLines = JSON.stringify(po.shipment_lines || []);
+            const nextLines = JSON.stringify(cleanedLines);
+            if (prevLines !== nextLines) {
                 changes.push('Shipment lines updated');
             }
+            po.shipment_lines = cleanedLines;
+            cloudUpdates.shipment_lines = cleanedLines;
+            // NOTE: shipment lines are a delivery schedule only.
+            // They NEVER overwrite po.qty, po.outstanding_qty, po.eta, or po.ship_date.
+            // Those remain under the sole control of their own form fields.
 
             logHistory(po, changes.length > 0 ? changes.join(', ') : 'Updated via form');
             cloudUpdates.history = po.history;
@@ -1150,14 +1179,21 @@ window.deletePO = async function() {
     const confirmed = confirm(`Permanently delete ${editingPOId}?\n\nThis cannot be undone.`);
     if (!confirmed) return;
 
-    state.pos = state.pos.filter(p => p.id !== editingPOId);
-    persistState();
-    await CloudService.deletePO(editingPOId)
-        .catch(err => console.warn('[Delete] Failed:', err));
+    const idToDelete = editingPOId; // capture before closeDrawer clears it
 
+    // Optimistic local removal
+    state.pos = state.pos.filter(p => p.id !== idToDelete);
+    persistState();
     closeDrawer();
     renderAll();
-    showToast(`🗑 PO deleted`, 'warning');
+
+    try {
+        await CloudService.deletePO(idToDelete);
+        showToast(`🗑 PO ${idToDelete} deleted`, 'warning');
+    } catch (err) {
+        console.error('[Delete] Cloud delete failed:', err);
+        showToast(`⚠️ Local delete succeeded but cloud sync failed — ${err.message}`, 'error');
+    }
 };
 
 // ---- Close PO (Dometic only, outstanding_qty must be 0) ----
